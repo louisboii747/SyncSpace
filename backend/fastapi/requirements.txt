@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+zeroconf
+websockets
+sqlalchemy
+aiosqlite
+pydantic
