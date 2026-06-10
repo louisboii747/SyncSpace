@@ -4,6 +4,7 @@ import '../features/clipboard/clipboard_page.dart';
 import '../features/notes/notes_page.dart';
 import '../features/transfers/transfers_page.dart';
 import '../features/settings/settings_page.dart';
+import '../core/theme/app_colors.dart';
 
 class ShellScreen extends StatefulWidget {
   const ShellScreen({super.key});
@@ -35,7 +36,12 @@ class _ShellScreenState extends State<ShellScreen> {
         children: [
           Container(
             width: 220,
-            color: Colors.grey.shade900,
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              border: Border(
+                right: BorderSide(color: Colors.white.withOpacity(0.05)),
+              ),
+            ),
             child: Material(
               color: Colors.transparent,
               child: Column(
@@ -92,9 +98,10 @@ class _ShellScreenState extends State<ShellScreen> {
               ),
             ),
           ),
+
           Expanded(
             child: Container(
-              color: Colors.grey.shade800,
+              color: AppColors.background,
               child: pages[selectedIndex],
             ),
           ),

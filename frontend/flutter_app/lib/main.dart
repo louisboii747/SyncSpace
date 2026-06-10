@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'core/theme/app_colors.dart';
 import 'shell/shell_screen.dart';
 
 void main() {
@@ -13,6 +14,13 @@ class SyncSpaceApp extends StatelessWidget {
     return MaterialApp(
       title: 'SyncSpace',
       debugShowCheckedModeBanner: false,
+
+      theme: ThemeData(
+        brightness: Brightness.dark,
+        scaffoldBackgroundColor: AppColors.background,
+        fontFamily: 'Segoe UI',
+      ),
+
       home: const ShellScreen(),
     );
   }
