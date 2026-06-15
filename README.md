@@ -22,7 +22,7 @@ Rather than relying entirely on cloud services, SyncSpace is being built around 
 
 ## Frontend Architecture
 
-SyncSpace is designed around a shared synchronization engine and platform-native user interfaces.
+SyncSpace is designed around a shared synchronization engine with platform-native user interfaces. This approach allows each platform to provide a native experience while sharing the same core functionality. For example, SyncSpace can take advantage of technologies such as Liquid Glass design on Apple platforms, Dynamic Island integration on iPhone, and other platform-specific features where appropriate.
 
 Each supported operating system will provide a user experience tailored to its platform while communicating with the same underlying Go synchronization engine.
 
@@ -110,10 +110,10 @@ The long-term goal for SyncSpace is to provide a unified platform for communicat
 
 ### Future
 
-- Optional cloud synchronization
+- Optional cloud synchronization with user accounts
 - Remote access capabilities
 - Additional productivity tools and integrations
 
 ## License
 
-Licensing information will be provided as the project matures.
+Apache 2.0
