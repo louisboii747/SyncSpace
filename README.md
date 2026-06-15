@@ -19,15 +19,8 @@ The project aims to provide a fast, intuitive, and feature-rich environment for 
 
 ## Technology Stack (Planned)
 
-### Frontend
-- Flutter
-
-### Backend
-- FastAPI
-- WebSockets
-- SQLite
-
 ### Networking
+
 - Zeroconf / mDNS device discovery
 - Local network communication
 - Cloud synchronization services

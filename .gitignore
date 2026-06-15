@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Android
+.gradle/
+build/
+
+# IntelliJ
+.idea/
+
+# VSCode
+.vscode/
+
+# Kotlin
+out/
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
