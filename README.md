@@ -1,42 +1,119 @@
 # SyncSpace
 
-SyncSpace is a modern cross-device workspace and synchronization platform designed to make it easier to move information, files, and workflows between devices.
+SyncSpace is a cross-platform device synchronization platform designed to make moving information between devices effortless.
 
-The project aims to provide a fast, intuitive, and feature-rich environment for connecting multiple devices through a unified workspace experience. Rather than focusing on a single function, SyncSpace is being designed as a productivity platform with a wide range of tools and integrations for everyday users, developers, and power users alike.
+The project aims to provide a seamless experience across Windows, Android, iOS, iPadOS, macOS, and eventually Linux, allowing devices to discover each other, exchange data, and stay synchronized through a fast and reliable local-first architecture.
+
+Rather than relying entirely on cloud services, SyncSpace is being built around direct device-to-device communication, enabling features such as clipboard synchronization, file transfers, notes synchronization, and real-time communication across a user's personal device ecosystem.
 
 ## Planned Features
 
-- Device discovery and management
+- Automatic device discovery using mDNS/Zeroconf
+- Secure device pairing and management
 - Cross-device clipboard synchronization
-- File transfer between connected devices
-- Notes and workspace synchronization
-- Real-time communication and status updates
+- Local network file transfers
+- Notes synchronization
+- Real-time device status updates
 - Transfer history and activity tracking
-- Local network connectivity
-- User accounts and cloud synchronization
-- Third-party authentication support
-- Extensible architecture for future functionality
+- Local-first architecture with optional cloud features
+- End-to-end encrypted communication
+- Native desktop and mobile experiences
+- Extensible architecture for future integrations and features
 
-## Technology Stack (Planned)
+## Frontend Architecture
 
-### Networking
+SyncSpace is designed around a shared synchronization engine and platform-native user interfaces.
 
-- Zeroconf / mDNS device discovery
+Each supported operating system will provide a user experience tailored to its platform while communicating with the same underlying Go synchronization engine.
+
+### Current Direction
+
+#### Android
+
+- Kotlin
+- Jetpack Compose
+
+#### iOS & iPadOS
+
+- Swift
+- SwiftUI
+
+#### macOS
+
+- Swift
+- SwiftUI
+
+#### Windows
+
+- Native desktop UI (currently under evaluation)
+
+#### Linux
+
+- Planned future support
+
+This approach allows SyncSpace to provide a native experience on every platform while sharing the same synchronization, networking, capabilities across the entire ecosystem.
+
+### Backend
+
+- Go
+- Gin
+- Gorilla WebSocket
+- Zeroconf (mDNS)
+- SQLite
+
+### Platforms
+
+- Windows
+- Android
+- iOS
+- iPadOS
+- macOS
+- Linux (planned)
+
+### Communication
+
+- WebSockets
 - Local network communication
-- Cloud synchronization services
+- Device-to-device synchronization
 
 ## Project Status
 
-SyncSpace is currently in the planning and design phase.
+SyncSpace is currently in active early development.
 
-Development will begin after the completion of several major milestones for my other projects om Github. The architecture, feature set, and user experience are actively being planned to ensure a scalable and maintainable foundation before implementation begins.
+The project foundation has been established, including basic repository structure, multi-platform project organization, and the Go-based engine. Current development is focused on implementing local network device discovery and building the core communication layer that future synchronization features will rely upon.
 
 ## Vision
 
-The goal of SyncSpace is to create a seamless workspace that allows users to interact with their devices as a connected ecosystem rather than as separate machines.
+The long-term goal for SyncSpace is to provide a unified platform for communication and productivity that feels native on every supported operating system while maintaining a fast, reliable, and privacy-focused experience.
 
-By combining synchronization, communication, device management, and productivity tools into a single platform, SyncSpace aims to provide a powerful experience across desktop and mobile devices.
+## Roadmap
+
+### Phase 1
+
+- Device discovery
+- Device registry
+- Secure pairing
+- Real-time communication layer
+
+### Phase 2
+
+- Clipboard synchronization
+- Notes synchronization
+- Transfer history
+- Settings and device management
+
+### Phase 3
+
+- File transfers
+- Enhanced security and encryption
+- Cross-platform UI refinement
+
+### Future
+
+- Optional cloud synchronization
+- Remote access capabilities
+- Additional productivity tools and integrations
 
 ## License
 
-This project is currently under development. Licensing information will be provided at a later date.
+Licensing information will be provided as the project matures.
