@@ -80,7 +80,7 @@ This approach allows SyncSpace to provide a native experience on every platform 
 
 SyncSpace is currently in active early development.
 
-The project foundation has been established, including basic repository structure, multi-platform project organization, and the Go-based engine. Current development is focused on implementing local network device discovery and building the core communication layer that future synchronization features will rely upon.
+The backend now includes automatic local-network discovery and an explicit, persistent local pairing foundation. Discovery presence never grants trust automatically; authenticated key exchange and peer-to-peer cryptographic verification remain upcoming security work before synchronization features are enabled.
 
 ## Vision
 
