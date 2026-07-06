@@ -1,4 +1,4 @@
-import type { ConflictPolicy, Device, LocalFile, Transfer, TransferEvent, TrustedDevice, UploadProgress } from './types'
+import type { ConflictPolicy, Device, Diagnostics, LocalFile, Transfer, TransferEvent, TrustedDevice, UploadProgress } from './types'
 
 export class APIError extends Error {
   constructor(message: string, readonly status: number) {
@@ -35,6 +35,11 @@ export const api = {
       method: 'POST', body: JSON.stringify({ destinationPath, conflictPolicy }),
     }),
   clearHistory: () => request<void>('/transfers/history', { method: 'DELETE' }),
+  diagnostics: () => request<Diagnostics>('/diagnostics'),
+  runHealthCheck: () => request<Diagnostics['health']>('/health'),
+  sendTestTransfer: () => request<Transfer>('/diagnostics/test-transfer', { method: 'POST' }),
+  simulateFailedTransfer: () => request<{ status: string }>('/diagnostics/simulate-failure', { method: 'POST' }),
+  clearTestData: () => request<{ status: string }>('/diagnostics/clear', { method: 'POST' }),
   trustDevice: async (deviceId: string) => {
     const pairing = await request<{ requestId: string }>('/pairing/request', {
       method: 'POST', body: JSON.stringify({ deviceId }),
@@ -119,13 +124,16 @@ export function connectTransferEvents(
     socket = new WebSocket(`${protocol}//${window.location.host}/ws/transfers`)
     socket.onopen = () => onState(true)
     socket.onmessage = (message) => {
-      try { onEvent(JSON.parse(message.data as string) as TransferEvent) } catch { /* ignore malformed events */ }
+      try { onEvent(JSON.parse(message.data as string) as TransferEvent) } catch (error) { console.warn('SyncSpace ignored a malformed transfer event', error) }
     }
     socket.onclose = () => {
       onState(false)
       if (!closed) retry = window.setTimeout(connect, 1500)
     }
-    socket.onerror = () => socket?.close()
+    socket.onerror = () => {
+      console.warn('SyncSpace transfer event connection failed; retrying')
+      socket?.close()
+    }
   }
   connect()
   return () => {

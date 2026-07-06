@@ -1,37 +1,72 @@
-# Transfer development guide
+# Development
 
-Run focused tests while iterating:
+## Prerequisites
+
+- Go 1.26.4 or newer
+- Node.js 22 or newer
+- npm (included with Node.js)
+
+From the repository root, install frontend packages once with `cd frontend &&
+npm ci`. No global JavaScript packages are required.
+
+## Run one normal device
 
 ```sh
-go test ./backend/internal/transfer
-go test ./backend/internal/api ./backend/internal/websocket
-cd frontend && npm run check
+go run ./backend/cmd/server
 ```
 
-Run acceptance checks before committing:
+The backend listens on `0.0.0.0:8384`, persists its identity and SQLite data in
+the operating system's user configuration directory, advertises over mDNS, and
+serves the embedded React application. Rebuild embedded frontend assets after a
+frontend change:
 
 ```sh
-gofmt -w backend
-go test ./...
-go vet ./...
-cd frontend && npm run check
+cd frontend
+npm run build
+cd ..
+go run ./backend/cmd/server
 ```
 
-Tests cover folders, multiple selections, portable path validation, 100 GB
-chunk arithmetic, corrupt chunks, out-of-order upload, compression, whole-file
-verification, conflict policy, pause/resume/cancel/retry, crash recovery,
-SQLite state mirrors, stable 1,200-item queues, API access control, and an
-end-to-end HTTP sender/receiver transfer.
+For live frontend work, run `npm run dev` in `frontend/` and the Go server in a
+second terminal. Vite listens on `127.0.0.1:5173` and proxies REST and WebSocket
+traffic to Device A at `127.0.0.1:8384`.
 
-When changing protocol fields, update the mDNS capability advertisement, Go
-models, protocol document, API document, persistence migration, and native UI
-contract together. Never infer authorization from discovery and never mark a
-transfer complete before whole-file SHA-256 verification succeeds.
+## Configuration
 
-## Frontend workflow
+| Variable | Meaning | Default |
+| --- | --- | --- |
+| `SYNCSPACE_HOST` | HTTP listen host | `0.0.0.0` |
+| `SYNCSPACE_PORT` | HTTP and advertised peer port | `8384` |
+| `SYNCSPACE_DATA_DIR` | Identity, SQLite, staging, and transfer root | OS config directory |
+| `SYNCSPACE_APP_VERSION` | Version exposed to peers | build version |
+| `SYNCSPACE_DEV_MODE` | Enables local simulator routes | disabled |
+| `SYNCSPACE_STATIC_PEERS` | JSON array merged with mDNS discovery | empty |
 
-Run `npm install` once in `frontend`, then `npm run dev` alongside the Go server.
-Vite proxies local REST and WebSocket requests to `127.0.0.1:8384`. `npm run
-build` type-checks the application and writes hashed production assets to
-`backend/internal/frontend/dist`; the Go binary embeds that directory. Rebuild
-the frontend whenever its source changes before compiling a release binary.
+Developer mode does not bypass trust. Static and simulated devices must still
+be approved through the pairing service before transfers are accepted.
+
+## Useful CLI
+
+```sh
+go run ./backend/cmd/syncspace doctor
+go run ./backend/cmd/syncspace dev start
+go run ./backend/cmd/syncspace dev verify
+go run ./backend/cmd/syncspace dev seed
+go run ./backend/cmd/syncspace dev simulate-device --scenario flaky --trusted
+go run ./backend/cmd/syncspace test-transfer
+go run ./backend/cmd/syncspace export-diagnostics --output diagnostics.zip
+go run ./backend/cmd/syncspace dev reset
+```
+
+See [TESTING.md](TESTING.md) for acceptance checks and
+[LOCAL_SIMULATION.md](LOCAL_SIMULATION.md) for scripts and scenario behavior.
+
+## Engineering rules
+
+- Discovery reports presence; it never grants trust.
+- Pairing management and developer controls remain loopback-only.
+- Never mark a transfer complete before whole-file SHA-256 verification.
+- Keep protocol models, persistence, API docs, mDNS capability fields, and UI
+  projections aligned when a wire field changes.
+- Add deterministic tests for failures and recovery; do not depend on physical
+  devices in the default test suite.

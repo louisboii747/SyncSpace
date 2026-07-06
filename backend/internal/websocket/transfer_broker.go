@@ -47,3 +47,9 @@ func (b *TransferBroker) Subscribe() (<-chan transfer.Event, func()) {
 	}
 	return queue, cancel
 }
+
+func (b *TransferBroker) SubscriberCount() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.subscribers)
+}

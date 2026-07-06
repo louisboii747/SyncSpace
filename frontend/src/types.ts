@@ -89,4 +89,25 @@ export interface UploadProgress {
   totalFiles: number
 }
 
-export type View = 'transfers' | 'devices' | 'history'
+export interface DiagnosticCheck { ok: boolean; detail?: string }
+export interface DiagnosticLog { time: string; level: string; message: string; attributes?: Record<string, string> }
+export interface Diagnostics {
+  health: { status: 'ok' | 'degraded'; checks: Record<string, DiagnosticCheck>; checkedAt: string }
+  localDevice: Device
+  platform: string
+  backendUrl: string
+  webSockets: { discovery: number; pairing: number; transfers: number }
+  discoveryRunning: boolean
+  knownDevices: Device[]
+  trustedDevices: TrustedDevice[]
+  activeTransfers: Transfer[]
+  transferQueue: Transfer[]
+  storagePath: string
+  databasePath: string
+  protocolVersion: number
+  developerMode: boolean
+  logs: DiagnosticLog[]
+  lastErrors: DiagnosticLog[]
+}
+
+export type View = 'transfers' | 'devices' | 'history' | 'diagnostics'

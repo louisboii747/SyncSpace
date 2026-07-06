@@ -33,6 +33,8 @@ func (h *TransferHandler) Serve(c *gin.Context) {
 		return
 	}
 	defer connection.Close()
+	h.logger.Info("Transfer WebSocket connected", "remote_address", c.Request.RemoteAddr)
+	defer h.logger.Info("Transfer WebSocket disconnected", "remote_address", c.Request.RemoteAddr)
 	events, unsubscribe := h.broker.Subscribe()
 	defer unsubscribe()
 	items, err := h.transfers.List(c.Request.Context())

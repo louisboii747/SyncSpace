@@ -33,6 +33,47 @@ The web surface is the shared desktop baseline. Platform-native clients can
 still provide deeper operating-system integrations while consuming the same
 REST and WebSocket contracts.
 
+## Developer quick start
+
+Requirements: Go 1.26.4 or newer and Node.js 22 or newer.
+
+```sh
+git clone https://github.com/louisboii747/SyncSpace.git
+cd SyncSpace
+cd frontend && npm ci && npm run build && cd ..
+go run ./backend/cmd/syncspace dev verify
+```
+
+The final command builds the backend, starts Device A on `127.0.0.1:8384` and
+Device B on `127.0.0.1:8385` with isolated identities, SQLite databases, and
+storage directories, pairs them explicitly, transfers a real file, checks the
+destination SHA-256, verifies history, and stops both processes. Runtime data
+lives under `.syncspace-dev/` and is ignored by Git.
+
+For an interactive two-device lab, run:
+
+```sh
+go run ./backend/cmd/syncspace dev start
+```
+
+Then open `http://127.0.0.1:8384` and `http://127.0.0.1:8385`. The Diagnostics
+page exposes health, paths, discovery, trust, queues, recent logs, failure
+simulation, and a downloadable diagnostic bundle. See
+[testing](docs/TESTING.md), [local simulation](docs/LOCAL_SIMULATION.md), and
+[diagnostics](docs/DIAGNOSTICS.md) for the complete workflows.
+
+## Test commands
+
+```sh
+go test ./...
+go vet ./...
+cd frontend && npm run check
+go run ./backend/cmd/syncspace dev verify
+```
+
+GitHub Actions runs the backend suite, frontend type validation/tests/build,
+and the two-process transfer smoke test on every push and pull request.
+
 ### Current Direction
 
 #### Android

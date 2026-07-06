@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/louisboii747/syncspace/backend/internal/diagnostics"
 	"github.com/louisboii747/syncspace/backend/internal/models"
 )
 
@@ -26,6 +27,8 @@ type RouterConfig struct {
 	PairingSocket   gin.HandlerFunc
 	Transfer        TransferService
 	TransferSocket  gin.HandlerFunc
+	Diagnostics     *diagnostics.Service
+	Simulator       SimulatorService
 	Frontend        http.Handler
 	Logger          *slog.Logger
 }
@@ -55,6 +58,7 @@ func NewRouter(config RouterConfig) *gin.Engine {
 	if config.Transfer != nil {
 		registerTransferRoutes(router, config.Transfer, config.TransferSocket, logger)
 	}
+	registerDiagnosticsRoutes(router, config.Diagnostics, config.Simulator, config.Pairing)
 	if config.Frontend != nil {
 		router.NoRoute(localOnly(), gin.WrapH(config.Frontend))
 	}

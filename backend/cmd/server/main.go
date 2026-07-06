@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -12,12 +13,17 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/louisboii747/syncspace/backend/internal/api"
+	"github.com/louisboii747/syncspace/backend/internal/devsim"
+	"github.com/louisboii747/syncspace/backend/internal/diagnostics"
 	"github.com/louisboii747/syncspace/backend/internal/discovery"
 	"github.com/louisboii747/syncspace/backend/internal/frontend"
+	"github.com/louisboii747/syncspace/backend/internal/models"
 	"github.com/louisboii747/syncspace/backend/internal/pairing"
 	"github.com/louisboii747/syncspace/backend/internal/services"
 	"github.com/louisboii747/syncspace/backend/internal/transfer"
@@ -33,14 +39,15 @@ const (
 )
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	if err := run(logger); err != nil {
+	logBuffer := diagnostics.NewLogBuffer(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}), 500)
+	logger := slog.New(logBuffer)
+	if err := run(logger, logBuffer); err != nil {
 		logger.Error("Server stopped", "error", err)
 		os.Exit(1)
 	}
 }
 
-func run(logger *slog.Logger) error {
+func run(logger *slog.Logger, logBuffer *diagnostics.LogBuffer) error {
 	config, err := loadConfig()
 	if err != nil {
 		return err
@@ -51,7 +58,8 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("load device identity: %w", err)
 	}
-	database, err := sql.Open("sqlite", filepath.Join(config.dataDirectory, "syncspace.db"))
+	databasePath := filepath.Join(config.dataDirectory, "syncspace.db")
+	database, err := sql.Open("sqlite", databasePath)
 	if err != nil {
 		return fmt.Errorf("open local database: %w", err)
 	}
@@ -94,10 +102,15 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("create discovery service: %w", err)
 	}
+	peerDirectory, err := devsim.New(devsim.Config{Enabled: config.developerMode, Base: discoveryService, Logger: logger, StaticPeers: config.staticPeers})
+	if err != nil {
+		return fmt.Errorf("create developer peer directory: %w", err)
+	}
+	defer peerDirectory.Close()
 	pairingBroker := discoveryws.NewPairingBroker()
 	pairingService, err := pairing.NewService(pairing.ServiceConfig{
 		Store:     trustedDeviceStore,
-		Peers:     discoveryService,
+		Peers:     peerDirectory,
 		Publisher: pairingBroker,
 		Logger:    logger,
 	})
@@ -112,7 +125,7 @@ func run(logger *slog.Logger) error {
 	}
 	transferBroker := discoveryws.NewTransferBroker()
 	transferService, err := transfer.NewService(transfer.ServiceConfig{
-		Store: transferStore, Peers: discoveryService, Authorizer: pairingService,
+		Store: transferStore, Peers: peerDirectory, Authorizer: pairingService,
 		Identity: identity, DataDirectory: filepath.Join(config.dataDirectory, "transfers"),
 		Publisher: transferBroker, Logger: logger,
 	})
@@ -120,16 +133,31 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("create transfer service: %w", err)
 	}
 
-	discoverySocketHandler := discoveryws.NewHandler(discoveryBroker, discoveryService, logger)
+	discoverySocketHandler := discoveryws.NewHandler(discoveryBroker, peerDirectory, logger)
 	pairingSocketHandler := discoveryws.NewPairingHandler(pairingBroker, pairingService, logger)
 	transferSocketHandler := discoveryws.NewTransferHandler(transferBroker, transferService, logger)
+	var discoveryRunning atomic.Bool
+	diagnosticsService, err := diagnostics.New(diagnostics.Config{
+		Database: database, DatabasePath: databasePath, StoragePath: filepath.Join(config.dataDirectory, "transfers"),
+		BackendURL: "http://127.0.0.1:" + strconv.Itoa(port), Identity: identity, Discovery: peerDirectory,
+		Trust: pairingService, Transfers: transferService, Logs: logBuffer, DeveloperMode: config.developerMode,
+		DiscoveryState: discoveryRunning.Load,
+		WebSocketState: func() diagnostics.WebSocketState {
+			return diagnostics.WebSocketState{Discovery: discoveryBroker.SubscriberCount(), Pairing: pairingBroker.SubscriberCount(), Transfers: transferBroker.SubscriberCount()}
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("create diagnostics service: %w", err)
+	}
 	router := api.NewRouter(api.RouterConfig{
-		Discovery:       discoveryService,
+		Discovery:       peerDirectory,
 		DiscoverySocket: discoverySocketHandler.Serve,
 		Pairing:         pairingService,
 		PairingSocket:   pairingSocketHandler.Serve,
 		Transfer:        transferService,
 		TransferSocket:  transferSocketHandler.Serve,
+		Diagnostics:     diagnosticsService,
+		Simulator:       peerDirectory,
 		Frontend:        frontend.Handler(),
 		Logger:          logger,
 	})
@@ -144,7 +172,8 @@ func run(logger *slog.Logger) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	go discoveryService.Run(ctx)
+	discoveryRunning.Store(true)
+	go func() { discoveryService.Run(ctx); discoveryRunning.Store(false) }()
 	go transferService.Run(ctx)
 
 	serveResult := make(chan error, 1)
@@ -184,6 +213,8 @@ type serverConfig struct {
 	listenAddress string
 	dataDirectory string
 	appVersion    string
+	developerMode bool
+	staticPeers   []models.Device
 }
 
 func loadConfig() (serverConfig, error) {
@@ -213,9 +244,21 @@ func loadConfig() (serverConfig, error) {
 	if appVersion == "" {
 		appVersion = buildVersion
 	}
+	developerMode := strings.EqualFold(os.Getenv("SYNCSPACE_DEV_MODE"), "true") || os.Getenv("SYNCSPACE_DEV_MODE") == "1"
+	var staticPeers []models.Device
+	if value := strings.TrimSpace(os.Getenv("SYNCSPACE_STATIC_PEERS")); value != "" {
+		if !developerMode {
+			return serverConfig{}, fmt.Errorf("SYNCSPACE_STATIC_PEERS requires SYNCSPACE_DEV_MODE=true")
+		}
+		if err := json.Unmarshal([]byte(value), &staticPeers); err != nil {
+			return serverConfig{}, fmt.Errorf("decode SYNCSPACE_STATIC_PEERS: %w", err)
+		}
+	}
 	return serverConfig{
 		listenAddress: net.JoinHostPort(host, strconv.Itoa(port)),
 		dataDirectory: dataDirectory,
 		appVersion:    appVersion,
+		developerMode: developerMode,
+		staticPeers:   staticPeers,
 	}, nil
 }

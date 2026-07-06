@@ -1,11 +1,12 @@
 import type { SVGProps } from 'react'
 
-export type IconName = 'send' | 'devices' | 'history' | 'plus' | 'folder' | 'file' | 'pause' | 'play' | 'close' | 'retry' | 'check' | 'shield' | 'refresh' | 'bell' | 'arrowUp' | 'arrowDown' | 'wifi' | 'more'
+export type IconName = 'send' | 'devices' | 'history' | 'diagnostics' | 'plus' | 'folder' | 'file' | 'pause' | 'play' | 'close' | 'retry' | 'check' | 'shield' | 'refresh' | 'bell' | 'arrowUp' | 'arrowDown' | 'wifi' | 'more'
 
 const paths: Record<IconName, React.ReactNode> = {
   send: <><path d="m4 4 17 8-17 8 3-8-3-8Z"/><path d="M7 12h14"/></>,
   devices: <><rect x="3" y="4" width="13" height="11" rx="2"/><path d="M8 20h3m-1.5-5v5"/><rect x="18" y="8" width="3" height="8" rx="1"/></>,
   history: <><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5m4-1v5l3 2"/></>,
+  diagnostics: <><path d="M4 19V9m5 10V5m5 14v-7m5 7V3"/><path d="M2 21h20"/></>,
   plus: <path d="M12 5v14M5 12h14"/>,
   folder: <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/>,
   file: <><path d="M6 2h8l4 4v16H6z"/><path d="M14 2v5h5"/></>,

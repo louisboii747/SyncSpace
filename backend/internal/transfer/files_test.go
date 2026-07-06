@@ -62,3 +62,22 @@ func TestChunkCountHandlesHundredGigabyteFiles(t *testing.T) {
 		t.Fatalf("chunkCount=%d want %d", got, want)
 	}
 }
+
+func TestConflictPoliciesOverwriteAndRenameDuplicates(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "report.txt")
+	if err := os.WriteFile(target, []byte("original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	overwrite, err := resolveConflict(target, ConflictOverwrite)
+	if err != nil || overwrite != target {
+		t.Fatalf("overwrite=%q err=%v", overwrite, err)
+	}
+	renamed, err := resolveConflict(target, ConflictRename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if renamed == target || filepath.Base(renamed) != "report (1).txt" {
+		t.Fatalf("renamed=%q", renamed)
+	}
+}

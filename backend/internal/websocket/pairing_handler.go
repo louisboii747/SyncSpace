@@ -50,6 +50,8 @@ func (h *PairingHandler) Serve(c *gin.Context) {
 		return
 	}
 	defer connection.Close()
+	h.logger.Info("Pairing WebSocket connected", "remote_address", c.Request.RemoteAddr)
+	defer h.logger.Info("Pairing WebSocket disconnected", "remote_address", c.Request.RemoteAddr)
 
 	events, unsubscribe := h.broker.Subscribe()
 	defer unsubscribe()

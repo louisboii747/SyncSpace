@@ -2,6 +2,22 @@
 
 Local management routes reject non-loopback clients.
 
+## Health and diagnostics
+
+- `GET /health` is loopback-only and returns component checks. A degraded
+  result uses HTTP 503.
+- `GET /diagnostics` returns the loopback-only runtime snapshot.
+- `GET /diagnostics/export` returns a loopback-only ZIP bundle.
+- `POST /diagnostics/test-transfer` queues a generated seed file to the first
+  suitable trusted online peer.
+- `POST /diagnostics/simulate-failure` creates and queues to an interrupted peer
+  in developer mode.
+- `POST /diagnostics/clear` clears test history and simulated peers/trust.
+
+Developer mode also exposes loopback-only `GET|POST
+/dev/simulated-devices` and `DELETE /dev/simulated-devices/{id}`. POST accepts
+`name`, one of the documented simulator `scenario` values, and `trusted`.
+
 ## Transfer management
 
 - `POST /transfers` queues `{"deviceId":"...","paths":["..."],

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, stageAndQueue } from './api'
 import { Icon } from './components/Icon'
 import { TransferCard } from './components/TransferCard'
+import { DiagnosticsPage } from './components/DiagnosticsPage'
 import { useSyncSpace } from './hooks/useSyncSpace'
 import type { ConflictPolicy, Device, LocalFile, Transfer, UploadProgress, View } from './types'
 import { cleanRelativePath, formatBytes, isActive } from './utils'
@@ -96,6 +97,7 @@ export default function App() {
         <NavButton icon="send" label="Transfers" active={view === 'transfers'} badge={sync.active.length || undefined} onClick={() => setView('transfers')} />
         <NavButton icon="devices" label="Devices" active={view === 'devices'} badge={capableDevices.length || undefined} onClick={() => setView('devices')} />
         <NavButton icon="history" label="History" active={view === 'history'} onClick={() => setView('history')} />
+        <NavButton icon="diagnostics" label="Diagnostics" active={view === 'diagnostics'} onClick={() => setView('diagnostics')} />
       </nav>
       <div className="sidebar-status">
         <div className="radar"><span/><span/><i /></div>
@@ -107,7 +109,7 @@ export default function App() {
 
     <main>
       <header className="topbar">
-        <div><span className="eyebrow">PRIVATE · DIRECT · FAST</span><h1>{view === 'transfers' ? 'Move anything, beautifully.' : view === 'devices' ? 'Your nearby space.' : 'Everything that moved.'}</h1></div>
+        <div><span className="eyebrow">PRIVATE · DIRECT · FAST</span><h1>{view === 'transfers' ? 'Move anything, beautifully.' : view === 'devices' ? 'Your nearby space.' : view === 'history' ? 'Everything that moved.' : 'See what SyncSpace sees.'}</h1></div>
         <div className="top-actions">
           <button className="icon-button" aria-label="Enable notifications" onClick={() => { if ('Notification' in window) void Notification.requestPermission() }}><Icon name="bell" /></button>
           <button className="profile" aria-label="Local SyncSpace profile">LS</button>
@@ -115,7 +117,7 @@ export default function App() {
       </header>
 
       {sync.error && <div className="backend-error"><div><strong>SyncSpace backend is out of reach</strong><span>{sync.error}</span></div><button className="button ghost" onClick={() => void sync.reload()}>Try again</button></div>}
-      {view === 'transfers' && <TransferView
+      {sync.loading ? <div className="app-loading glass-panel" aria-busy="true"><span className="loading-pulse"/><strong>Connecting to the local SyncSpace backend…</strong></div> : view === 'transfers' && <TransferView
         devices={capableDevices} trustedIDs={sync.trustedIDs} selectedDevice={selectedDevice} onSelect={setSelectedDevice}
         conflictPolicy={conflictPolicy} onConflictPolicy={setConflictPolicy} upload={upload}
         active={sync.active} activeCount={activeCount} totalSpeed={totalSpeed}
@@ -124,6 +126,7 @@ export default function App() {
       />}
       {view === 'devices' && <DevicesView devices={sync.devices} trustedIDs={sync.trustedIDs} onSelect={(device) => { setSelectedDevice(device.deviceId); setView('transfers') }} onPair={setPairTarget} />}
       {view === 'history' && <HistoryView transfers={sync.history} onChanged={onTransferChanged} onError={(message) => sync.toast('error', 'History action failed', message)} onCleared={() => sync.setTransfers((current) => current.filter((item) => !['Completed', 'Cancelled'].includes(item.status)))} />}
+      {view === 'diagnostics' && <DiagnosticsPage websocketConnected={sync.connected} />}
     </main>
 
     <input ref={fileInput} className="visually-hidden" type="file" multiple onChange={(event) => { void sendFiles(filesFromList(event.currentTarget.files)); event.currentTarget.value = '' }} />
@@ -142,7 +145,7 @@ export default function App() {
   </div>
 }
 
-function NavButton({ icon, label, active, badge, onClick }: { icon: 'send' | 'devices' | 'history'; label: string; active: boolean; badge?: number; onClick: () => void }) {
+function NavButton({ icon, label, active, badge, onClick }: { icon: 'send' | 'devices' | 'history' | 'diagnostics'; label: string; active: boolean; badge?: number; onClick: () => void }) {
   return <button className={active ? 'active' : ''} onClick={onClick}><Icon name={icon}/><span>{label}</span>{badge !== undefined && <em>{badge}</em>}</button>
 }
 
@@ -154,7 +157,7 @@ interface TransferViewProps {
   onChanged: (transfer: Transfer) => void; onError: (message: string) => void
 }
 
-function TransferView(props: TransferViewProps) {
+export function TransferView(props: TransferViewProps) {
   return <div className="page-grid">
     <section className="send-panel glass-panel">
       <div className="section-heading"><div><span className="section-kicker">CHOOSE A DESTINATION</span><h2>Nearby devices</h2></div><button className="text-button" onClick={() => void api.refreshDevices()}><Icon name="refresh"/>Refresh</button></div>
@@ -186,7 +189,7 @@ function TransferView(props: TransferViewProps) {
   </div>
 }
 
-function DevicesView({ devices, trustedIDs, onSelect, onPair }: { devices: Device[]; trustedIDs: Set<string>; onSelect: (device: Device) => void; onPair: (device: Device) => void }) {
+export function DevicesView({ devices, trustedIDs, onSelect, onPair }: { devices: Device[]; trustedIDs: Set<string>; onSelect: (device: Device) => void; onPair: (device: Device) => void }) {
   return <section className="devices-page"><div className="device-grid">{devices.map((device) => <article className="device-card glass-panel" key={device.deviceId}>
     <div className="device-card-top"><span className="large-device-icon"><PlatformGlyph platform={device.platform}/></span><span className={`presence ${device.online ? 'online' : ''}`}>{device.online ? 'Online' : 'Offline'}</span></div>
     <h2>{device.deviceName}</h2><p>{device.platform} · SyncSpace {device.appVersion}</p>
@@ -195,7 +198,7 @@ function DevicesView({ devices, trustedIDs, onSelect, onPair }: { devices: Devic
   </article>)}{!devices.length && <div className="large-empty"><div className="radar"><span/><span/><i/></div><h2>No nearby devices yet</h2><p>SyncSpace automatically discovers peers on the same local network.</p></div>}</div></section>
 }
 
-function HistoryView({ transfers, onChanged, onError, onCleared }: { transfers: Transfer[]; onChanged: (transfer: Transfer) => void; onError: (message: string) => void; onCleared: () => void }) {
+export function HistoryView({ transfers, onChanged, onError, onCleared }: { transfers: Transfer[]; onChanged: (transfer: Transfer) => void; onError: (message: string) => void; onCleared: () => void }) {
   const clear = async () => { try { await api.clearHistory(); onCleared() } catch (error) { onError(error instanceof Error ? error.message : 'Unable to clear history') } }
   return <section className="history-page"><div className="section-heading"><div><span className="section-kicker">VERIFIED RECORD</span><h2>Transfer history</h2></div>{transfers.length > 0 && <button className="button ghost" onClick={() => void clear()}>Clear history</button>}</div><div className="transfer-list">{transfers.length ? transfers.map((transfer) => <TransferCard key={transfer.uuid} transfer={transfer} onChanged={onChanged} onError={onError}/>) : <div className="large-empty"><span className="empty-history-icon"><Icon name="history"/></span><h2>Your history is clear</h2><p>Completed and cancelled transfers will settle here.</p></div>}</div></section>
 }

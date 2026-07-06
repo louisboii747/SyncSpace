@@ -146,6 +146,33 @@ func TestCorruptedChunkIsRejectedAndPartialTransferCanRetry(t *testing.T) {
 	}
 }
 
+func TestFinalChecksumMismatchFailsAndPendingTransferCanBeRejected(t *testing.T) {
+	senderID := uuid.NewString()
+	service, _ := newReceiverService(t, senderID)
+	contents := []byte("hello")
+	offer := Offer{TransferID: uuid.NewString(), DeviceID: senderID, DeviceName: "Sender", SessionToken: "01234567890123456789012345678901", Filename: "hello.txt", Size: 5, ChunkSize: 5, ProtocolVersion: 1, Files: []File{{ID: uuid.NewString(), RelativePath: "hello.txt", Size: 5, Checksum: checksumBytes([]byte("other")), ChunkSize: 5, ChunkCount: 1}}}
+	if _, err := service.ReceiveOffer(context.Background(), offer, "127.0.0.1"); err != nil {
+		t.Fatal(err)
+	}
+	rejected, err := service.Reject(context.Background(), offer.TransferID)
+	if err != nil || rejected.Status != StatusCancelled {
+		t.Fatalf("rejected=%#v err=%v", rejected, err)
+	}
+	offer.TransferID, offer.Files[0].ID = uuid.NewString(), uuid.NewString()
+	if _, err = service.ReceiveOffer(context.Background(), offer, "127.0.0.1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.Accept(context.Background(), offer.TransferID, AcceptRequest{DestinationPath: t.TempDir(), ConflictPolicy: ConflictRename}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.ReceiveChunk(context.Background(), offer.TransferID, offer.Files[0].ID, offer.SessionToken, 0, checksumBytes(contents), "", bytes.NewReader(contents)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.Finalize(context.Background(), offer.TransferID, offer.SessionToken); !errors.Is(err, ErrChecksumMismatch) {
+		t.Fatalf("expected final checksum mismatch, got %v", err)
+	}
+}
+
 func TestPauseResumeCancelAndFailedRetryStateMachine(t *testing.T) {
 	senderID := uuid.NewString()
 	service, store := newReceiverService(t, senderID)
@@ -253,20 +280,24 @@ func TestSenderAndReceiverProtocolStreamsFolderWithCompression(t *testing.T) {
 	if err := os.MkdirAll(folder, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	contents := bytes.Repeat([]byte("compressible local data\n"), 1000)
+	contents := bytes.Repeat([]byte("compressible local data\n"), 512*1024)
 	if err := os.WriteFile(filepath.Join(folder, "readme.txt"), contents, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loose := filepath.Join(sourceRoot, "tiny.txt")
+	if err := os.WriteFile(loose, []byte("tiny file\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	senderStore, senderDB := newSQLiteStoreForTest(t)
 	defer senderDB.Close()
-	receiverPeer := models.Device{ID: receiver.identity.ID, Name: "Receiver", Type: "desktop", Platform: "test", LocalIP: "127.0.0.1", Port: port, AppVersion: "test", Online: true, TransferCapability: true, SupportedProtocolVersion: 1, MaximumChunkSize: 1024, CompressionSupport: true}
+	receiverPeer := models.Device{ID: receiver.identity.ID, Name: "Receiver", Type: "desktop", Platform: "test", LocalIP: "127.0.0.1", Port: port, AppVersion: "test", Online: true, TransferCapability: true, SupportedProtocolVersion: 1, MaximumChunkSize: 256 * 1024, CompressionSupport: true}
 	senderIdentity := services.Identity{ID: senderID, Name: "Sender", Type: "desktop", Platform: "test"}
 	senderEvents := &recordingPublisher{}
-	sender, err := NewService(ServiceConfig{Store: senderStore, Peers: testPeers{[]models.Device{receiverPeer}}, Authorizer: testAuthorizer{map[string]bool{receiver.identity.ID: true}}, Identity: senderIdentity, DataDirectory: t.TempDir(), ChunkSize: 1024, HTTPClient: server.Client(), Publisher: senderEvents})
+	sender, err := NewService(ServiceConfig{Store: senderStore, Peers: testPeers{[]models.Device{receiverPeer}}, Authorizer: testAuthorizer{map[string]bool{receiver.identity.ID: true}}, Identity: senderIdentity, DataDirectory: t.TempDir(), ChunkSize: 256 * 1024, HTTPClient: server.Client(), Publisher: senderEvents})
 	if err != nil {
 		t.Fatal(err)
 	}
-	queued, err := sender.Queue(context.Background(), QueueRequest{DeviceID: receiver.identity.ID, Paths: []string{folder}, ConflictPolicy: ConflictRename})
+	queued, err := sender.Queue(context.Background(), QueueRequest{DeviceID: receiver.identity.ID, Paths: []string{folder, loose}, ConflictPolicy: ConflictRename})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,6 +317,10 @@ func TestSenderAndReceiverProtocolStreamsFolderWithCompression(t *testing.T) {
 	}
 	if !bytes.Equal(saved, contents) {
 		t.Fatal("end-to-end contents differ")
+	}
+	tiny, err := os.ReadFile(filepath.Join(destination, "tiny.txt"))
+	if err != nil || string(tiny) != "tiny file\n" {
+		t.Fatalf("second file=%q err=%v", tiny, err)
 	}
 	senderEvents.assertProgressMonotonic(t)
 	receiverEvents.assertProgressMonotonic(t)

@@ -56,3 +56,9 @@ func (b *PairingBroker) Subscribe() (<-chan pairing.Event, func()) {
 	}
 	return queue, cancel
 }
+
+func (b *PairingBroker) SubscriberCount() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.subscribers)
+}

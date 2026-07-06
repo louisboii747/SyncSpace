@@ -58,6 +58,8 @@ func (h *Handler) Serve(c *gin.Context) {
 		return
 	}
 	defer connection.Close()
+	h.logger.Info("Discovery WebSocket connected", "remote_address", c.Request.RemoteAddr)
+	defer h.logger.Info("Discovery WebSocket disconnected", "remote_address", c.Request.RemoteAddr)
 
 	events, unsubscribe := h.broker.Subscribe()
 	defer unsubscribe()

@@ -60,3 +60,9 @@ func (b *Broker) Subscribe() (<-chan models.DiscoveryEvent, func()) {
 	}
 	return queue, cancel
 }
+
+func (b *Broker) SubscriberCount() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.subscribers)
+}
