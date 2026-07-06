@@ -120,6 +120,22 @@ func (s *Service) TrustedDevices(ctx context.Context) ([]TrustedDevice, error) {
 	return devices, nil
 }
 
+// IsTrusted implements the narrow authorization contract used by sensitive
+// feature modules such as file transfer. Discovery presence alone is never
+// sufficient authorization.
+func (s *Service) IsTrusted(ctx context.Context, deviceID string) (bool, error) {
+	if err := validateUUID(deviceID); err != nil {
+		return false, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.store.Get(ctx, deviceID)
+	if errors.Is(err, ErrTrustedDeviceNotFound) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
 // RequestPairing creates a short-lived request for an online discovered peer.
 // Repeated requests for the same peer return the existing pending request.
 func (s *Service) RequestPairing(ctx context.Context, deviceID string) (Request, error) {

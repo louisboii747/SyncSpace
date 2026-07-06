@@ -2,13 +2,18 @@
 
 The backend is the local networking engine shared by SyncSpace clients. It
 advertises `_syncspace._tcp.local.` over mDNS, maintains a live peer registry,
-and stores explicit local trust decisions in SQLite.
+stores explicit local trust decisions, and runs the persistent local-network
+file transfer engine.
 
 ## Run
 
 ```sh
 go run ./backend/cmd/server
 ```
+
+Then open `http://127.0.0.1:8384`. The embedded React application and every
+management endpoint are restricted to loopback clients even though peer
+protocol routes listen on the LAN.
 
 The server listens on all interfaces at port `8384` by default. Its permanent
 device UUID is created once in the operating system's user config directory.
@@ -20,6 +25,10 @@ Environment variables:
 - `SYNCSPACE_PORT`: API and advertised port (default `8384`)
 - `SYNCSPACE_DATA_DIR`: identity storage directory
 - `SYNCSPACE_APP_VERSION`: advertised version (default build version or `dev`)
+
+Transfer data and restart-safe partial files live below the same data directory.
+The engine defaults to two concurrent transfers, four chunk workers per
+transfer, and 4 MiB chunks negotiated down to the receiver's advertised limit.
 
 ## Discovery API
 
@@ -95,3 +104,37 @@ infer trust from `/devices`.
 - Until that protocol exists, trusted state is a local authorization decision;
   it must not be treated as cryptographic proof that a network peer owns the
   claimed discovery UUID.
+
+## File transfer
+
+The transfer engine supports files, folders, multiple selections, durable queue
+ordering, pause/resume/cancel/retry, restart recovery, adaptive retry
+throttling, optional per-chunk gzip, SHA-256 chunk and whole-file verification,
+conflict policies, and transfer history. File bodies stream directly between
+disk and bounded chunks; whole files are never loaded into RAM.
+
+Local clients use the loopback-only routes below:
+
+- `POST /transfers`
+- `GET /transfers` and `GET /transfers/:id`
+- `POST /transfers/:id/accept`, `/reject`, `/pause`, `/resume`, `/cancel`, or
+  `/retry`
+- `DELETE /transfers/history`
+- `GET /ws/transfers`
+
+The browser UI additionally uses `/transfers/staging`: it creates an isolated
+session, streams each selected file with `PUT /transfers/staging/:id/files`, and
+promotes uploaded top-level roots with `POST /transfers/staging/:id/queue`.
+Incomplete browser sessions expire after 24 hours. Native clients should queue
+real filesystem paths directly and avoid the extra local staging copy.
+
+Peer devices use `/v1/transfers` for offers, resume maps, chunk uploads,
+completion, and cancellation. See the [protocol](../docs/transfer-protocol.md),
+[API](../docs/api.md), and [database schema](../docs/database.md) for exact
+contracts.
+
+Incoming offers require durable trust, a live discovery record whose IP matches
+the connection source, and explicit local approval. The current pairing layer
+is not authenticated cryptographic identity and peer HTTP is not yet encrypted;
+that pre-existing security milestone remains mandatory before deploying on a
+hostile LAN.

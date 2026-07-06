@@ -6,12 +6,13 @@ The project aims to provide a seamless experience across Windows, Android, iOS, 
 
 Rather than relying entirely on cloud services, SyncSpace is being built around direct device-to-device communication, enabling features such as clipboard synchronization, file transfers, notes synchronization, and real-time communication across a user's personal device ecosystem.
 
-## Planned Features
+## Features and direction
 
 - Automatic device discovery using mDNS/Zeroconf
 - Secure device pairing and management
 - Cross-device clipboard synchronization
-- Local network file transfers
+- Local network file transfers with persistent queues, pause/resume, retries,
+  folder manifests, compression, and SHA-256 verification
 - Notes synchronization
 - Real-time device status updates
 - Transfer history and activity tracking
@@ -22,9 +23,15 @@ Rather than relying entirely on cloud services, SyncSpace is being built around 
 
 ## Frontend Architecture
 
-SyncSpace is designed around a shared synchronization engine with platform-native user interfaces. This approach allows each platform to provide a native experience while sharing the same core functionality. For example, SyncSpace can take advantage of technologies such as Liquid Glass design on Apple platforms, Dynamic Island integration on iPhone, and other platform-specific features where appropriate.
+SyncSpace now includes a responsive React and TypeScript control surface embedded
+directly in the Go server. Open `http://127.0.0.1:8384` to discover and trust
+devices, drag files or folders into the persistent queue, approve incoming
+transfers, monitor live speed and ETA, pause/resume/cancel/retry, and inspect
+history. The interface and all management APIs are loopback-only.
 
-Each supported operating system will provide a user experience tailored to its platform while communicating with the same underlying Go synchronization engine.
+The web surface is the shared desktop baseline. Platform-native clients can
+still provide deeper operating-system integrations while consuming the same
+REST and WebSocket contracts.
 
 ### Current Direction
 
@@ -45,11 +52,11 @@ Each supported operating system will provide a user experience tailored to its p
 
 #### Windows
 
-- Native desktop UI (currently under evaluation)
+- Embedded React control surface
 
 #### Linux
 
-- Planned future support
+- Embedded React control surface
 
 This approach allows SyncSpace to provide a native experience on every platform while sharing the same synchronization, networking, capabilities across the entire ecosystem.
 
@@ -78,9 +85,19 @@ This approach allows SyncSpace to provide a native experience on every platform 
 
 ## Project Status
 
-SyncSpace is currently in active early development.
+SyncSpace is currently in active development.
 
-The backend now includes automatic local-network discovery and an explicit, persistent local pairing foundation. Discovery presence never grants trust automatically; authenticated key exchange and peer-to-peer cryptographic verification remain upcoming security work before synchronization features are enabled.
+The backend includes automatic local-network discovery, explicit persistent
+pairing decisions, and a restart-safe local file transfer engine. Transfers use
+bounded parallel chunk streaming, explicit inbound approval, resume maps,
+per-chunk and whole-file SHA-256 verification, conflict policies, history, REST,
+and live WebSocket events. Discovery presence never grants trust automatically.
+
+The embedded React frontend provides the complete shared transfer experience,
+including streaming browser staging for drag-and-drop and folder selection.
+Native client behavior remains defined in the [transfer UI
+contract](docs/transfer-ui.md). Authenticated key exchange and encrypted peer
+transport remain required before use on an untrusted LAN.
 
 ## Vision
 
@@ -99,12 +116,12 @@ The long-term goal for SyncSpace is to provide a unified platform for communicat
 
 - Clipboard synchronization
 - Notes synchronization
-- Transfer history
+- Transfer history and reliable local file-transfer engine (backend complete)
 - Settings and device management
 
 ### Phase 3
 
-- File transfers
+- Deeper platform-native file-transfer integrations
 - Enhanced security and encryption
 - Cross-platform UI refinement
 

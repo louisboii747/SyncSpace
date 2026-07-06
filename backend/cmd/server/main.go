@@ -17,8 +17,10 @@ import (
 
 	"github.com/louisboii747/syncspace/backend/internal/api"
 	"github.com/louisboii747/syncspace/backend/internal/discovery"
+	"github.com/louisboii747/syncspace/backend/internal/frontend"
 	"github.com/louisboii747/syncspace/backend/internal/pairing"
 	"github.com/louisboii747/syncspace/backend/internal/services"
+	"github.com/louisboii747/syncspace/backend/internal/transfer"
 	discoveryws "github.com/louisboii747/syncspace/backend/internal/websocket"
 )
 
@@ -53,7 +55,7 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("open local database: %w", err)
 	}
-	database.SetMaxOpenConns(1)
+	database.SetMaxOpenConns(4)
 	defer database.Close()
 	storeContext, cancelStore := context.WithTimeout(context.Background(), 5*time.Second)
 	trustedDeviceStore, err := pairing.NewSQLiteTrustedDeviceStore(storeContext, database)
@@ -81,12 +83,13 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("create device registry: %w", err)
 	}
 	discoveryService, err := discovery.NewService(discovery.ServiceConfig{
-		Identity:   identity,
-		Port:       port,
-		AppVersion: config.appVersion,
-		Registry:   registry,
-		MDNS:       discovery.NewZeroconfMDNS(),
-		Logger:     logger,
+		Identity:             identity,
+		Port:                 port,
+		AppVersion:           config.appVersion,
+		Registry:             registry,
+		MDNS:                 discovery.NewZeroconfMDNS(),
+		Logger:               logger,
+		TransferCapabilities: transfer.DetectCapabilities(filepath.Join(config.dataDirectory, "transfers")),
 	})
 	if err != nil {
 		return fmt.Errorf("create discovery service: %w", err)
@@ -101,21 +104,40 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("create pairing service: %w", err)
 	}
+	transferStoreContext, cancelTransferStore := context.WithTimeout(context.Background(), 5*time.Second)
+	transferStore, err := transfer.NewSQLiteStore(transferStoreContext, database)
+	cancelTransferStore()
+	if err != nil {
+		return fmt.Errorf("create transfer store: %w", err)
+	}
+	transferBroker := discoveryws.NewTransferBroker()
+	transferService, err := transfer.NewService(transfer.ServiceConfig{
+		Store: transferStore, Peers: discoveryService, Authorizer: pairingService,
+		Identity: identity, DataDirectory: filepath.Join(config.dataDirectory, "transfers"),
+		Publisher: transferBroker, Logger: logger,
+	})
+	if err != nil {
+		return fmt.Errorf("create transfer service: %w", err)
+	}
 
 	discoverySocketHandler := discoveryws.NewHandler(discoveryBroker, discoveryService, logger)
 	pairingSocketHandler := discoveryws.NewPairingHandler(pairingBroker, pairingService, logger)
+	transferSocketHandler := discoveryws.NewTransferHandler(transferBroker, transferService, logger)
 	router := api.NewRouter(api.RouterConfig{
 		Discovery:       discoveryService,
 		DiscoverySocket: discoverySocketHandler.Serve,
 		Pairing:         pairingService,
 		PairingSocket:   pairingSocketHandler.Serve,
+		Transfer:        transferService,
+		TransferSocket:  transferSocketHandler.Serve,
+		Frontend:        frontend.Handler(),
 		Logger:          logger,
 	})
 	httpServer := &http.Server{
 		Handler:           router,
 		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      30 * time.Second,
+		ReadTimeout:       2 * time.Minute,
+		WriteTimeout:      0,
 		IdleTimeout:       90 * time.Second,
 		MaxHeaderBytes:    1 << 20,
 	}
@@ -123,6 +145,7 @@ func run(logger *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go discoveryService.Run(ctx)
+	go transferService.Run(ctx)
 
 	serveResult := make(chan error, 1)
 	go func() {

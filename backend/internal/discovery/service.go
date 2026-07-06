@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -19,30 +20,32 @@ var errSessionRestart = errors.New("discovery session restart requested")
 
 // ServiceConfig supplies dependencies and lifecycle settings for discovery.
 type ServiceConfig struct {
-	Identity        services.Identity
-	Port            int
-	AppVersion      string
-	Registry        *Registry
-	MDNS            MDNS
-	Logger          *slog.Logger
-	NetworkInterval time.Duration
-	RestartInterval time.Duration
-	SweepInterval   time.Duration
+	Identity             services.Identity
+	Port                 int
+	AppVersion           string
+	Registry             *Registry
+	MDNS                 MDNS
+	Logger               *slog.Logger
+	NetworkInterval      time.Duration
+	RestartInterval      time.Duration
+	SweepInterval        time.Duration
+	TransferCapabilities models.TransferCapabilities
 }
 
 // Service supervises broadcasting, browsing, network-change recovery, peer
 // expiry, and access to discovery state.
 type Service struct {
-	identity        services.Identity
-	port            int
-	appVersion      string
-	registry        *Registry
-	mdns            MDNS
-	logger          *slog.Logger
-	networkInterval time.Duration
-	restartInterval time.Duration
-	sweepInterval   time.Duration
-	refresh         chan struct{}
+	identity             services.Identity
+	port                 int
+	appVersion           string
+	registry             *Registry
+	mdns                 MDNS
+	logger               *slog.Logger
+	networkInterval      time.Duration
+	restartInterval      time.Duration
+	sweepInterval        time.Duration
+	refresh              chan struct{}
+	transferCapabilities models.TransferCapabilities
 
 	selfMu sync.RWMutex
 	self   models.Device
@@ -77,26 +80,32 @@ func NewService(config ServiceConfig) (*Service, error) {
 
 	now := time.Now().UTC()
 	return &Service{
-		identity:        config.Identity,
-		port:            config.Port,
-		appVersion:      config.AppVersion,
-		registry:        config.Registry,
-		mdns:            config.MDNS,
-		logger:          config.Logger,
-		networkInterval: config.NetworkInterval,
-		restartInterval: config.RestartInterval,
-		sweepInterval:   config.SweepInterval,
-		refresh:         make(chan struct{}, 1),
+		identity:             config.Identity,
+		port:                 config.Port,
+		appVersion:           config.AppVersion,
+		registry:             config.Registry,
+		mdns:                 config.MDNS,
+		logger:               config.Logger,
+		networkInterval:      config.NetworkInterval,
+		restartInterval:      config.RestartInterval,
+		sweepInterval:        config.SweepInterval,
+		refresh:              make(chan struct{}, 1),
+		transferCapabilities: config.TransferCapabilities,
 		self: models.Device{
-			ID:              config.Identity.ID,
-			Name:            config.Identity.Name,
-			Type:            config.Identity.Type,
-			Platform:        config.Identity.Platform,
-			Port:            config.Port,
-			AppVersion:      config.AppVersion,
-			LastSeen:        now,
-			Online:          true,
-			ConnectionState: models.ConnectionOnline,
+			ID:                       config.Identity.ID,
+			Name:                     config.Identity.Name,
+			Type:                     config.Identity.Type,
+			Platform:                 config.Identity.Platform,
+			Port:                     config.Port,
+			AppVersion:               config.AppVersion,
+			LastSeen:                 now,
+			Online:                   true,
+			ConnectionState:          models.ConnectionOnline,
+			AvailableStorage:         config.TransferCapabilities.AvailableStorage,
+			TransferCapability:       config.TransferCapabilities.TransferSupport,
+			SupportedProtocolVersion: config.TransferCapabilities.ProtocolVersion,
+			MaximumChunkSize:         config.TransferCapabilities.MaxChunkSize,
+			CompressionSupport:       config.TransferCapabilities.CompressionSupport,
 		},
 	}, nil
 }
@@ -183,6 +192,11 @@ func (s *Service) runSession(ctx context.Context) error {
 			"platform=" + local.Platform,
 			"version=" + local.AppVersion,
 			"protocol=1",
+			"transfer=" + strconv.FormatBool(local.TransferCapability),
+			"transfer_protocol=" + strconv.Itoa(local.SupportedProtocolVersion),
+			"max_chunk=" + strconv.FormatInt(local.MaximumChunkSize, 10),
+			"compression=" + strconv.FormatBool(local.CompressionSupport),
+			"available_storage=" + strconv.FormatInt(local.AvailableStorage, 10),
 		},
 	}
 	advertiser, err := s.mdns.Advertise(advertisement)
@@ -316,6 +330,11 @@ func parseAdvertisement(advertisement Advertisement) (models.Device, error) {
 		Port:       advertisement.Port,
 		AppVersion: values["version"],
 	}
+	device.TransferCapability, _ = strconv.ParseBool(values["transfer"])
+	device.SupportedProtocolVersion, _ = strconv.Atoi(values["transfer_protocol"])
+	device.MaximumChunkSize, _ = strconv.ParseInt(values["max_chunk"], 10, 64)
+	device.CompressionSupport, _ = strconv.ParseBool(values["compression"])
+	device.AvailableStorage, _ = strconv.ParseInt(values["available_storage"], 10, 64)
 	if err := validateDiscoveredDevice(device); err != nil {
 		return models.Device{}, err
 	}

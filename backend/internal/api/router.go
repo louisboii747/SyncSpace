@@ -24,6 +24,9 @@ type RouterConfig struct {
 	DiscoverySocket gin.HandlerFunc
 	Pairing         PairingService
 	PairingSocket   gin.HandlerFunc
+	Transfer        TransferService
+	TransferSocket  gin.HandlerFunc
+	Frontend        http.Handler
 	Logger          *slog.Logger
 }
 
@@ -49,6 +52,12 @@ func NewRouter(config RouterConfig) *gin.Engine {
 	})
 	router.GET("/ws/discovery", config.DiscoverySocket)
 	registerPairingRoutes(router, config.Pairing, config.PairingSocket, logger)
+	if config.Transfer != nil {
+		registerTransferRoutes(router, config.Transfer, config.TransferSocket, logger)
+	}
+	if config.Frontend != nil {
+		router.NoRoute(localOnly(), gin.WrapH(config.Frontend))
+	}
 	return router
 }
 

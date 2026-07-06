@@ -96,7 +96,7 @@ func localOnly() gin.HandlerFunc {
 		}
 		ip := net.ParseIP(strings.Trim(host, "[]"))
 		if ip == nil || !ip.IsLoopback() {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "pairing management is available only from this device"})
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "local management is available only from this device"})
 			return
 		}
 		c.Next()

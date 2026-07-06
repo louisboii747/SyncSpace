@@ -199,7 +199,12 @@ func metadataChanged(existing, incoming models.Device) bool {
 		existing.Platform != incoming.Platform ||
 		existing.LocalIP != incoming.LocalIP ||
 		existing.Port != incoming.Port ||
-		existing.AppVersion != incoming.AppVersion
+		existing.AppVersion != incoming.AppVersion ||
+		existing.AvailableStorage != incoming.AvailableStorage ||
+		existing.TransferCapability != incoming.TransferCapability ||
+		existing.SupportedProtocolVersion != incoming.SupportedProtocolVersion ||
+		existing.MaximumChunkSize != incoming.MaximumChunkSize ||
+		existing.CompressionSupport != incoming.CompressionSupport
 }
 
 func newEvent(eventType models.DiscoveryEventType, device models.Device, timestamp time.Time) *models.DiscoveryEvent {

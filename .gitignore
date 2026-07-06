@@ -21,3 +21,9 @@ out/
 
 # Logs
 *.log
+
+# React / Vite
+frontend/node_modules/
+frontend/.vite/
+frontend/*.tsbuildinfo
+.tmp/
