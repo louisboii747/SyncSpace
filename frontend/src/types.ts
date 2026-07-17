@@ -21,6 +21,8 @@ export interface Device {
   supportedProtocolVersion: number
   maximumChunkSize: number
   compressionSupport: boolean
+	identityHint: string
+	pairingAvailable: boolean
 }
 
 export interface TrustedDevice {
@@ -29,7 +31,40 @@ export interface TrustedDevice {
   platform: string
   pairedAt: string
   lastSeen: string
-  trustState: 'trusted'
+	lastAuthenticatedAt?: string
+	trustState: 'trusted' | 'blocked'
+	publicKey: string
+	fingerprint: string
+	blocked: boolean
+	identityKeyChanged: boolean
+	localName?: string
+	notes?: string
+}
+
+export interface PairingRequest {
+	requestId: string
+	deviceId: string
+	deviceName: string
+	platform: string
+	direction: 'incoming' | 'outgoing'
+	fingerprint: string
+	verificationCode: string
+	requestedAt: string
+	expiresAt: string
+	state: 'pending' | 'confirming' | 'paired' | 'rejected' | 'expired'
+	localConfirmed: boolean
+	remoteConfirmed: boolean
+}
+
+export interface PairingDecision { request: PairingRequest; trustedDevice?: TrustedDevice }
+
+export interface Settings {
+	schemaVersion: number
+	appearance: 'system' | 'light' | 'dark'
+	reducedMotion: boolean
+	defaultDownloadDirectory: string
+	conflictPolicy: ConflictPolicy
+	notificationsEnabled: boolean
 }
 
 export interface TransferFile {
@@ -110,4 +145,4 @@ export interface Diagnostics {
   lastErrors: DiagnosticLog[]
 }
 
-export type View = 'transfers' | 'devices' | 'history' | 'diagnostics'
+export type View = 'home' | 'transfers' | 'devices' | 'history' | 'settings' | 'diagnostics'

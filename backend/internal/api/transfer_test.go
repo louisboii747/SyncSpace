@@ -26,7 +26,7 @@ func (s *fakeTransferService) Queue(_ context.Context, r transfer.QueueRequest) 
 	s.queued = r
 	return transfer.Transfer{ID: "queued", Status: transfer.StatusQueued}, nil
 }
-func (s *fakeTransferService) ReceiveOffer(_ context.Context, o transfer.Offer, _ string) (transfer.Transfer, error) {
+func (s *fakeTransferService) ReceiveOffer(_ context.Context, o transfer.Offer, _ string, _ transfer.PeerAuthentication) (transfer.Transfer, error) {
 	s.offered = o
 	return transfer.Transfer{ID: o.TransferID, Status: transfer.StatusQueued}, nil
 }

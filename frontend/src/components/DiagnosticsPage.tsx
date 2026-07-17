@@ -50,10 +50,7 @@ export function DiagnosticsPage({ websocketConnected }: { websocketConnected: bo
       <div className="diagnostics-button-row">
         <button className="button ghost" disabled={Boolean(busy)} onClick={() => void action('health', api.runHealthCheck, 'Health check completed.')}><Icon name="check"/>Run health check</button>
         <button className="button ghost" disabled={Boolean(busy)} onClick={() => void action('discovery', api.refreshDevices, 'Discovery refresh requested.')}><Icon name="refresh"/>Refresh discovery</button>
-        <button className="button primary" disabled={Boolean(busy)} onClick={() => void action('transfer', api.sendTestTransfer, 'Test transfer queued.')}><Icon name="send"/>Send test transfer</button>
-        <button className="button ghost" disabled={Boolean(busy) || !snapshot.developerMode} onClick={() => void action('failure', api.simulateFailedTransfer, 'Failure simulation started.')}><Icon name="retry"/>Simulate failed transfer</button>
-        <button className="button ghost" disabled={Boolean(busy) || !snapshot.developerMode} onClick={() => void action('clear', api.clearTestData, 'Test data cleared.')}><Icon name="close"/>Clear test data</button>
-        <a className="button ghost" href="/diagnostics/export" download><Icon name="arrowDown"/>Export bundle</a>
+		<a className="button ghost" href="/api/v1/diagnostics/export" download><Icon name="arrowDown"/>Export bundle</a>
       </div>
     </div>
     {(message || error) && <div className={`diagnostics-notice ${error ? 'error' : 'success'}`} role="status">{error || message}</div>}

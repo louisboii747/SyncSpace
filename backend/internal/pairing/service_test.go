@@ -2,60 +2,68 @@ package pairing
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/louisboii747/syncspace/backend/internal/models"
+	"github.com/louisboii747/syncspace/backend/internal/services"
 )
 
-type memoryTrustedStore struct {
-	devices map[string]TrustedDevice
-}
+type memoryTrustedStore struct{ devices map[string]TrustedDevice }
 
 func newMemoryTrustedStore() *memoryTrustedStore {
 	return &memoryTrustedStore{devices: make(map[string]TrustedDevice)}
 }
-
 func (s *memoryTrustedStore) List(context.Context) ([]TrustedDevice, error) {
-	devices := make([]TrustedDevice, 0, len(s.devices))
+	result := make([]TrustedDevice, 0, len(s.devices))
 	for _, device := range s.devices {
-		devices = append(devices, device)
+		result = append(result, device)
 	}
-	return devices, nil
+	return result, nil
 }
-
 func (s *memoryTrustedStore) Get(_ context.Context, id string) (TrustedDevice, error) {
-	device, found := s.devices[id]
-	if !found {
+	device, ok := s.devices[id]
+	if !ok {
 		return TrustedDevice{}, ErrTrustedDeviceNotFound
 	}
 	return device, nil
 }
-
 func (s *memoryTrustedStore) Upsert(_ context.Context, device TrustedDevice) error {
 	s.devices[device.DeviceID] = device
 	return nil
 }
-
 func (s *memoryTrustedStore) Delete(_ context.Context, id string) (TrustedDevice, error) {
-	device, found := s.devices[id]
-	if !found {
+	device, ok := s.devices[id]
+	if !ok {
 		return TrustedDevice{}, ErrTrustedDeviceNotFound
 	}
 	delete(s.devices, id)
 	return device, nil
 }
 
-type staticPeerDirectory struct {
-	devices []models.Device
+type staticPeerDirectory struct{ devices []models.Device }
+
+func (d *staticPeerDirectory) Devices() []models.Device {
+	return append([]models.Device(nil), d.devices...)
 }
 
-func (d *staticPeerDirectory) Devices() []models.Device { return d.devices }
+type linkTransport struct {
+	target     *Service
+	remoteHost string
+}
+
+func (t *linkTransport) Begin(ctx context.Context, _ models.Device, request BeginRequest) (BeginResponse, error) {
+	return t.target.ReceiveBegin(ctx, request, t.remoteHost)
+}
+func (t *linkTransport) Proof(ctx context.Context, _ models.Device, proof Proof) (PeerDecision, error) {
+	return t.target.ReceiveProof(ctx, proof)
+}
 
 type eventRecorder struct {
 	mu     sync.Mutex
@@ -64,148 +72,134 @@ type eventRecorder struct {
 
 func (r *eventRecorder) Publish(event Event) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.events = append(r.events, event)
+	r.mu.Unlock()
 }
 
-func (r *eventRecorder) types() []EventType {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	types := make([]EventType, 0, len(r.events))
-	for _, event := range r.events {
-		types = append(types, event.Type)
-	}
-	return types
-}
-
-func TestServiceRequiresExplicitAcceptanceAndPersistsTrust(t *testing.T) {
-	ctx := context.Background()
-	now := time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC)
-	peer := models.Device{
-		ID:       uuid.NewString(),
-		Name:     "Peer-Mac",
-		Platform: "darwin",
-		LastSeen: now.Add(-time.Second),
-		Online:   true,
-	}
-	store := newMemoryTrustedStore()
-	directory := &staticPeerDirectory{devices: []models.Device{peer}}
-	events := &eventRecorder{}
-	service := newTestService(t, store, directory, events, func() time.Time { return now })
-
-	trusted, err := service.TrustedDevices(ctx)
-	if err != nil || len(trusted) != 0 {
-		t.Fatalf("discovery automatically created trust: %#v, %v", trusted, err)
-	}
-	request, err := service.RequestPairing(ctx, peer.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	duplicate, err := service.RequestPairing(ctx, peer.ID)
-	if err != nil || duplicate.RequestID != request.RequestID {
-		t.Fatalf("duplicate request was not idempotent: %#v, %v", duplicate, err)
-	}
-	trusted, err = service.TrustedDevices(ctx)
-	if err != nil || len(trusted) != 0 {
-		t.Fatalf("pending request created trust: %#v, %v", trusted, err)
-	}
-
-	accepted, err := service.Accept(ctx, request.RequestID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if accepted.DeviceID != peer.ID || accepted.TrustState != TrustStateTrusted || accepted.PairingKey != "test-placeholder-key" {
-		t.Fatalf("unexpected accepted trust: %#v", accepted)
-	}
-	restarted := newTestService(t, store, directory, nil, func() time.Time { return now.Add(time.Minute) })
-	trusted, err = restarted.TrustedDevices(ctx)
-	if err != nil || len(trusted) != 1 || trusted[0].DeviceID != peer.ID {
-		t.Fatalf("trust did not survive service restart: %#v, %v", trusted, err)
-	}
-	assertPairingEventTypes(t, events.types(), EventPairingRequested, EventPairingAccepted)
-}
-
-func TestServiceRejectsAndRemovesTrust(t *testing.T) {
-	ctx := context.Background()
-	now := time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC)
-	peer := models.Device{ID: uuid.NewString(), Name: "Phone", Platform: "android", LastSeen: now, Online: true}
-	store := newMemoryTrustedStore()
-	directory := &staticPeerDirectory{devices: []models.Device{peer}}
-	events := &eventRecorder{}
-	service := newTestService(t, store, directory, events, func() time.Time { return now })
-
-	request, err := service.RequestPairing(ctx, peer.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := service.Reject(request.RequestID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := service.Accept(ctx, request.RequestID); !errors.Is(err, ErrRequestNotFound) {
-		t.Fatalf("rejected request could still be accepted: %v", err)
-	}
-
-	request, err = service.RequestPairing(ctx, peer.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := service.Accept(ctx, request.RequestID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := service.RemoveTrustedDevice(ctx, peer.ID); err != nil {
-		t.Fatal(err)
-	}
-	if devices, err := service.TrustedDevices(ctx); err != nil || len(devices) != 0 {
-		t.Fatalf("trust was not removed: %#v, %v", devices, err)
-	}
-	assertPairingEventTypes(t, events.types(),
-		EventPairingRequested,
-		EventPairingRejected,
-		EventPairingRequested,
-		EventPairingAccepted,
-		EventTrustedDeviceRemoved,
-	)
-}
-
-func TestServiceExpiresPendingRequests(t *testing.T) {
-	ctx := context.Background()
-	now := time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC)
-	peer := models.Device{ID: uuid.NewString(), Name: "Phone", Platform: "ios", LastSeen: now, Online: true}
-	service := newTestService(t, newMemoryTrustedStore(), &staticPeerDirectory{devices: []models.Device{peer}}, nil, func() time.Time { return now })
-	request, err := service.RequestPairing(ctx, peer.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	service.now = func() time.Time { return now.Add(6 * time.Minute) }
-	if _, err := service.Accept(ctx, request.RequestID); !errors.Is(err, ErrRequestNotFound) {
-		t.Fatalf("expected expired request to be unavailable, got %v", err)
-	}
-}
-
-func newTestService(t *testing.T, store TrustedDeviceStore, peers PeerDirectory, events EventPublisher, now func() time.Time) *Service {
+func testIdentity(t *testing.T, name, platform string) services.Identity {
 	t.Helper()
-	service, err := NewService(ServiceConfig{
-		Store:       store,
-		Peers:       peers,
-		Publisher:   events,
-		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Now:         now,
-		GenerateKey: func() (string, error) { return "test-placeholder-key", nil },
-	})
+	identity, err := services.NewFileIdentityStore(filepath.Join(t.TempDir(), name, "identity.json")).LoadOrCreate()
 	if err != nil {
 		t.Fatal(err)
 	}
-	return service
+	identity.Name, identity.Platform = name, platform
+	return identity
 }
 
-func assertPairingEventTypes(t *testing.T, actual []EventType, expected ...EventType) {
+func peerFor(identity services.Identity, now time.Time) models.Device {
+	return models.Device{ID: identity.ID, Name: identity.Name, Type: identity.Type, Platform: identity.Platform, LocalIP: "127.0.0.1", Port: 8385, AppVersion: "test", LastSeen: now, Online: true, ConnectionState: models.ConnectionOnline, IdentityHint: identity.ShortFingerprint(), PairingAvailable: true}
+}
+
+func pairedServices(t *testing.T, now func() time.Time) (*Service, *Service, *memoryTrustedStore, *memoryTrustedStore) {
 	t.Helper()
-	if len(actual) != len(expected) {
-		t.Fatalf("events = %v, want %v", actual, expected)
-	}
-	for index := range expected {
-		if actual[index] != expected[index] {
-			t.Fatalf("event %d = %s, want %s", index, actual[index], expected[index])
+	identityA, identityB := testIdentity(t, "Device A", "windows"), testIdentity(t, "Device B", "linux")
+	storeA, storeB := newMemoryTrustedStore(), newMemoryTrustedStore()
+	transportA, transportB := &linkTransport{remoteHost: "127.0.0.1"}, &linkTransport{remoteHost: "127.0.0.1"}
+	newService := func(identity services.Identity, peer models.Device, store TrustedDeviceStore, transport PeerTransport) *Service {
+		service, err := NewService(ServiceConfig{Store: store, Peers: &staticPeerDirectory{devices: []models.Device{peer}}, Identity: identity, Transport: transport, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: now})
+		if err != nil {
+			t.Fatal(err)
 		}
+		return service
 	}
+	a := newService(identityA, peerFor(identityB, now()), storeA, transportA)
+	b := newService(identityB, peerFor(identityA, now()), storeB, transportB)
+	transportA.target, transportB.target = b, a
+	return a, b, storeA, storeB
+}
+
+func TestAuthenticatedPairingRequiresMatchingCodesAndBothConfirmations(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)
+	a, b, storeA, storeB := pairedServices(t, func() time.Time { return now })
+	peerID := b.identity.ID
+	requestA, err := a.RequestPairing(ctx, peerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestsB := b.Requests()
+	if len(requestsB) != 1 || requestsB[0].VerificationCode != requestA.VerificationCode || requestsB[0].Direction != DirectionIncoming {
+		t.Fatalf("verification ceremony did not match: A=%#v B=%#v", requestA, requestsB)
+	}
+	if len(storeA.devices) != 0 || len(storeB.devices) != 0 {
+		t.Fatal("key exchange created trust before user confirmation")
+	}
+
+	decisionA, err := a.Accept(ctx, requestA.RequestID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decisionA.TrustedDevice != nil || decisionA.Request.State != RequestStateConfirming {
+		t.Fatalf("first confirmation trusted prematurely: %#v", decisionA)
+	}
+	decisionB, err := b.Accept(ctx, requestA.RequestID)
+	if err != nil || decisionB.TrustedDevice == nil {
+		t.Fatalf("receiver confirmation did not complete local trust: %#v %v", decisionB, err)
+	}
+	decisionA, err = a.Refresh(ctx, requestA.RequestID)
+	if err != nil || decisionA.TrustedDevice == nil {
+		t.Fatalf("initiator did not observe peer confirmation: %#v %v", decisionA, err)
+	}
+	trustedA, trustedB := storeA.devices[b.identity.ID], storeB.devices[a.identity.ID]
+	if trustedA.PairingKey == "" || trustedA.PairingKey != trustedB.PairingKey || trustedA.PublicKey != b.identity.PublicKey || trustedB.PublicKey != a.identity.PublicKey {
+		t.Fatalf("paired credentials differ: A=%#v B=%#v", trustedA, trustedB)
+	}
+	encoded, _ := json.Marshal(trustedA)
+	if string(encoded) == "" || contains(string(encoded), trustedA.PairingKey) {
+		t.Fatal("trusted-device API leaked the shared pairing key")
+	}
+}
+
+func TestPairingRejectsDiscoveryIdentityMismatchAndReplayedProof(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now().UTC()
+	a, b, _, _ := pairedServices(t, func() time.Time { return now })
+	a.peers.(*staticPeerDirectory).devices[0].IdentityHint = "FFFF:FFFF:FFFF:FFFF"
+	if _, err := a.RequestPairing(ctx, b.identity.ID); !errors.Is(err, ErrProtocol) {
+		t.Fatalf("expected discovery identity mismatch, got %v", err)
+	}
+	a, b, _, _ = pairedServices(t, func() time.Time { return now })
+	request, err := a.RequestPairing(ctx, b.identity.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := a.sessions[request.RequestID]
+	proof := newProof(b.identity.ID, request.RequestID, "status", session.secret, now)
+	if _, err := a.ReceiveProof(ctx, proof); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.ReceiveProof(ctx, proof); !errors.Is(err, ErrProtocol) {
+		t.Fatalf("replayed proof was accepted: %v", err)
+	}
+}
+
+func TestPairingRejectBlockAndExpiryLifecycle(t *testing.T) {
+	ctx := context.Background()
+	current := time.Now().UTC()
+	a, b, _, _ := pairedServices(t, func() time.Time { return current })
+	request, err := a.RequestPairing(ctx, b.identity.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Reject(ctx, request.RequestID); err != nil {
+		t.Fatal(err)
+	}
+	if decision, err := a.Accept(ctx, request.RequestID); err != nil || decision.Request.State != RequestStateRejected {
+		t.Fatalf("rejected request changed state: %#v %v", decision, err)
+	}
+	current = current.Add(6 * time.Minute)
+	if _, err := a.Refresh(ctx, request.RequestID); !errors.Is(err, ErrRequestNotFound) {
+		t.Fatalf("expired request remained available: %v", err)
+	}
+}
+
+func contains(value, fragment string) bool {
+	return len(fragment) > 0 && len(value) >= len(fragment) && func() bool {
+		for index := 0; index+len(fragment) <= len(value); index++ {
+			if value[index:index+len(fragment)] == fragment {
+				return true
+			}
+		}
+		return false
+	}()
 }

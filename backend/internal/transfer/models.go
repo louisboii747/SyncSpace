@@ -155,6 +155,16 @@ type OfferResponse struct {
 	Approved   bool   `json:"approved"`
 }
 
+// PeerAuthentication authenticates the initial offer with the shared key
+// established by verified pairing. Subsequent requests use the offer session
+// token over the pinned TLS channel.
+type PeerAuthentication struct {
+	DeviceID  string
+	Timestamp string
+	Nonce     string
+	Signature string
+}
+
 type ResumeMap struct {
 	TransferID string             `json:"transferId"`
 	Status     Status             `json:"status"`

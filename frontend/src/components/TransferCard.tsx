@@ -8,12 +8,14 @@ interface Props {
   transfer: Transfer
   onChanged: (transfer: Transfer) => void
   onError: (message: string) => void
+	defaultDestination?: string
+	defaultConflictPolicy?: ConflictPolicy
 }
 
-export function TransferCard({ transfer, onChanged, onError }: Props) {
+export function TransferCard({ transfer, onChanged, onError, defaultDestination = '', defaultConflictPolicy = 'rename' }: Props) {
   const [busy, setBusy] = useState(false)
-  const [destination, setDestination] = useState('')
-  const [policy, setPolicy] = useState<ConflictPolicy>('rename')
+	const [destination, setDestination] = useState(defaultDestination)
+	const [policy, setPolicy] = useState<ConflictPolicy>(defaultConflictPolicy)
   const percent = progressPercent(transfer)
   const canPause = ['Preparing', 'Connecting', 'Negotiating', 'Sending', 'Receiving', 'Resuming'].includes(transfer.status)
   const canCancel = !['Completed', 'Cancelled'].includes(transfer.status)

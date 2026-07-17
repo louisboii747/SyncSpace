@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -45,12 +46,11 @@ func (m *fakeMDNS) Browse(ctx context.Context, entries chan<- Advertisement) err
 
 func TestServiceRefreshRestartsDiscoveryAndFindsPeer(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	identity := services.Identity{
-		ID:       uuid.NewString(),
-		Name:     "Local-PC",
-		Type:     "desktop",
-		Platform: "windows",
+	identity, err := services.NewFileIdentityStore(filepath.Join(t.TempDir(), "identity.json")).LoadOrCreate()
+	if err != nil {
+		t.Fatal(err)
 	}
+	identity.Name, identity.Type, identity.Platform = "Local-PC", "desktop", "windows"
 	registry, err := NewRegistry(RegistryConfig{
 		SelfID:       identity.ID,
 		OfflineAfter: time.Minute,

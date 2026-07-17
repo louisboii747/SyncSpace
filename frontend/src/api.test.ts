@@ -24,7 +24,7 @@ describe('transfer WebSocket events', () => {
     const onState = vi.fn()
     const stop = connectTransferEvents(onEvent, onState)
     const socket = FakeSocket.instances[0]
-    expect(socket.url).toBe('ws://127.0.0.1:8384/ws/transfers')
+		expect(socket.url).toBe('ws://127.0.0.1:8384/api/v1/ws/transfers')
     socket.onopen?.()
     socket.onmessage?.({ data: JSON.stringify({ type: 'Progress', transfer: transferFixture(), timestamp: '2026-07-06T12:00:00Z' }) })
     socket.onmessage?.({ data: '{not json' })

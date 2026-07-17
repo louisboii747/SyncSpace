@@ -1,81 +1,85 @@
-# Local simulation
+# Two-device local lab
 
-## Two real local backend instances
+The lab is the fastest way to use the complete implemented flow without two
+physical computers. It runs two real SyncSpace processes, not two UI mocks.
 
-Run both devices with one command:
+Build the current embedded frontend first:
 
-```sh
+```powershell
+cd frontend
+npm ci
+npm run build
+cd ..
+```
+
+## Interactive lab
+
+```powershell
 go run ./backend/cmd/syncspace dev start
 ```
 
-Run `cd frontend && npm ci && npm run build && cd ..` once after cloning so the
-embedded UI reflects the current React source.
+Open:
 
-Device A uses port `8384`, ID `00000000-0000-4000-8000-00000000000a`, and
-`.syncspace-dev/device-a`. Device B uses port `8385`, ID ending in `b`, and
-`.syncspace-dev/device-b`. Static loopback peer records make both appear in
-discovery even when the operating system does not loop mDNS back to itself.
-Pairing remains explicit and is persisted independently in each SQLite file.
+- Device A: <http://127.0.0.1:8384>
+- Device B: <http://127.0.0.1:8385>
 
-Custom ports are supported:
+The command creates independent cryptographic identities and data roots, starts
+peer TLS on `18384`/`18385`, compares the derived pairing code on both services,
+confirms both sides, and persists mutual trust. It then waits until `Ctrl+C`.
 
-```sh
-go run ./backend/cmd/syncspace dev start --port-a 9001 --port-b 9002
+From another terminal, exercise a real transfer:
+
+```powershell
+go run ./backend/cmd/syncspace test-transfer
 ```
 
-Available wrappers:
+The destination is `.syncspace-dev/device-b/received/tiny.txt`. The command
+requires mutual trust, stages bytes through Device A, accepts them on Device B,
+and checks SHA-256 and persistent history.
+
+## One-command acceptance run
+
+```powershell
+go run ./backend/cmd/syncspace dev verify
+```
+
+This performs the build, two-process startup, health checks, embedded-frontend
+checks, signed pairing, pinned-TLS transfer, destination checksum, and history
+checks, then stops both processes. It is also the CI smoke test.
+
+## Wrapper scripts
 
 | Action | PowerShell | macOS/Linux |
 | --- | --- | --- |
 | Start both | `.\scripts\dev-start.ps1` | `sh scripts/dev-start` |
-| Start A | `.\scripts\dev-device-a.ps1` | `sh scripts/dev-device-a` |
-| Start B | `.\scripts\dev-device-b.ps1` | `sh scripts/dev-device-b` |
+| Start A alone | `.\scripts\dev-device-a.ps1` | `sh scripts/dev-device-a` |
+| Start B alone | `.\scripts\dev-device-b.ps1` | `sh scripts/dev-device-b` |
 | Seed files | `.\scripts\dev-seed-files.ps1` | `sh scripts/dev-seed-files` |
-| Verify transfer | `.\scripts\dev-transfer-test.ps1` | `sh scripts/dev-transfer-test` |
-| Reset | `.\scripts\dev-reset.ps1` | `sh scripts/dev-reset` |
+| Verify transfer against a running lab | `.\scripts\dev-transfer-test.ps1` | `sh scripts/dev-transfer-test` |
+| Reset lab data | `.\scripts\dev-reset.ps1` | `sh scripts/dev-reset` |
 
-## Fake device simulator
+Start A and B wrappers in separate terminals when process-level logs need to be
+inspected independently. Custom interactive ports are also supported:
 
-Start Device A or the two-device lab, then create a peer:
-
-```sh
-go run ./backend/cmd/syncspace dev simulate-device --scenario flaky --trusted
+```powershell
+go run ./backend/cmd/syncspace dev start --port-a 9000 --port-b 9002
 ```
 
-Use `--url http://127.0.0.1:8385` to target Device B, `--name "Slow phone"`
-to set a label, and `--trusted` to perform the normal local pairing flow.
+The corresponding peer TLS ports are the selected management ports plus
+`10000`.
 
-Scenarios:
+## Reset safely
 
-| Scenario | Behavior |
-| --- | --- |
-| `online` | Healthy transfer-protocol peer |
-| `offline` | Listed offline and not transfer-capable |
-| `trusted` | Created and paired through the real pairing service |
-| `untrusted` | Discoverable but never implicitly trusted |
-| `slow` | Adds deterministic latency to every protocol request |
-| `flaky` | Fails each chunk's first attempt, then accepts retry |
-| `rejected` | Rejects the initial transfer offer |
-| `interrupted` | Returns a retryable failure for chunks |
-| `disk_full` | Returns HTTP 507 while receiving chunks |
-| `checksum_failure` | Accepts bytes, then rejects final verification |
+Stop every lab process, then run:
 
-The simulator implements the actual HTTP transfer protocol using local
-in-process servers. It is available only when `SYNCSPACE_DEV_MODE=true`; all
-management routes are loopback-only. It does not silently add trust.
-
-## Direct simulator API
-
-```sh
-curl -X POST http://127.0.0.1:8384/dev/simulated-devices \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"Flaky phone","scenario":"flaky","trusted":true}'
-curl http://127.0.0.1:8384/dev/simulated-devices
+```powershell
+go run ./backend/cmd/syncspace dev reset
 ```
 
-Delete one with `DELETE /dev/simulated-devices/{deviceId}` or use **Clear test
-data** on the Diagnostics page.
+The reset command resolves the repository-local root, requires its final path
+component to be `.syncspace-dev`, and removes only that lab directory. It does
+not touch the normal per-user SyncSpace data directory.
 
-Discovery (`GET /devices`, `POST /discovery/refresh`, `/ws/discovery`) and
-pairing APIs work normally in the lab. Clipboard sync is still a roadmap item;
-there is no clipboard API to simulate or test in the current protocol.
+Developer fixture endpoints remain internal test infrastructure. They are not
+the acceptance path and are intentionally not exposed as product controls in
+the Diagnostics UI.

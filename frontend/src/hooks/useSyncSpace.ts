@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, connectTransferEvents } from '../api'
-import type { Device, Transfer, TransferEvent, TrustedDevice } from '../types'
+import type { Device, PairingRequest, Settings, Transfer, TransferEvent, TrustedDevice } from '../types'
 
 export interface ToastMessage {
   id: number
@@ -12,7 +12,9 @@ export interface ToastMessage {
 export function useSyncSpace() {
   const [devices, setDevices] = useState<Device[]>([])
   const [trusted, setTrusted] = useState<TrustedDevice[]>([])
-  const [transfers, setTransfers] = useState<Transfer[]>([])
+	const [transfers, setTransfers] = useState<Transfer[]>([])
+	const [pairingRequests, setPairingRequests] = useState<PairingRequest[]>([])
+	const [settings, setSettings] = useState<Settings | null>(null)
   const [loading, setLoading] = useState(true)
   const [connected, setConnected] = useState(false)
   const [error, setError] = useState('')
@@ -28,10 +30,12 @@ export function useSyncSpace() {
 
   const load = useCallback(async () => {
     try {
-      const [deviceList, trustList, transferList] = await Promise.all([api.devices(), api.trustedDevices(), api.transfers()])
+		const [deviceList, trustList, pairingList, transferList, currentSettings] = await Promise.all([api.devices(), api.trustedDevices(), api.pairingRequests(), api.transfers(), api.settings()])
       setDevices(deviceList)
       setTrusted(trustList)
-      setTransfers(transferList)
+		setTransfers(transferList)
+		setPairingRequests(pairingList)
+		setSettings(currentSettings)
       setError('')
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'SyncSpace backend is unavailable')
@@ -43,9 +47,10 @@ export function useSyncSpace() {
   useEffect(() => { void load() }, [load])
   useEffect(() => {
     const refresh = window.setInterval(() => {
-      void Promise.all([api.devices(), api.trustedDevices()]).then(([nextDevices, nextTrusted]) => {
+		void Promise.all([api.devices(), api.trustedDevices(), api.pairingRequests()]).then(([nextDevices, nextTrusted, nextPairing]) => {
         setDevices(nextDevices)
-        setTrusted(nextTrusted)
+			setTrusted(nextTrusted)
+			setPairingRequests(nextPairing)
       }).catch(() => undefined)
     }, 10_000)
     return () => window.clearInterval(refresh)
@@ -62,20 +67,20 @@ export function useSyncSpace() {
     if (event.type === 'Complete') {
       setCelebration((value) => value + 1)
       toast('success', 'Transfer complete', `${event.transfer.filename} arrived safely.`)
-      if ('Notification' in window && Notification.permission === 'granted') {
+		if (settings?.notificationsEnabled && 'Notification' in window && Notification.permission === 'granted') {
         new Notification('SyncSpace transfer complete', { body: event.transfer.filename })
       }
     } else if (event.type === 'Failure') {
       toast('error', 'Transfer needs attention', event.transfer.error || event.transfer.filename)
     }
-  }, setConnected), [toast])
+	}, setConnected), [settings?.notificationsEnabled, toast])
 
-  const trustedIDs = useMemo(() => new Set(trusted.map((item) => item.deviceId)), [trusted])
+	const trustedIDs = useMemo(() => new Set(trusted.filter((item) => !item.blocked && !item.identityKeyChanged).map((item) => item.deviceId)), [trusted])
   const active = useMemo(() => transfers.filter((item) => !['Completed', 'Cancelled'].includes(item.status)), [transfers])
   const history = useMemo(() => transfers.filter((item) => ['Completed', 'Cancelled'].includes(item.status)), [transfers])
 
   return {
-    devices, trusted, trustedIDs, transfers, active, history, loading, connected, error,
-    toasts, celebration, toast, reload: load, setTrusted, setTransfers,
+		devices, trusted, trustedIDs, pairingRequests, settings, transfers, active, history, loading, connected, error,
+		toasts, celebration, toast, reload: load, setTrusted, setPairingRequests, setSettings, setTransfers,
   }
 }

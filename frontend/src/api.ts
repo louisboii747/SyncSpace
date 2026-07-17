@@ -1,4 +1,6 @@
-import type { ConflictPolicy, Device, Diagnostics, LocalFile, Transfer, TransferEvent, TrustedDevice, UploadProgress } from './types'
+import type { ConflictPolicy, Device, Diagnostics, LocalFile, PairingDecision, PairingRequest, Settings, Transfer, TransferEvent, TrustedDevice, UploadProgress } from './types'
+
+const API = '/api/v1'
 
 export class APIError extends Error {
   constructor(message: string, readonly status: number) {
@@ -24,34 +26,36 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  devices: () => request<Device[]>('/devices'),
-  trustedDevices: () => request<TrustedDevice[]>('/pairing/trusted-devices'),
-  transfers: () => request<Transfer[]>('/transfers'),
-  refreshDevices: () => request<{ status: string }>('/discovery/refresh', { method: 'POST' }),
+	devices: () => request<Device[]>(`${API}/devices`),
+	trustedDevices: () => request<TrustedDevice[]>(`${API}/pairing/trusted-devices`),
+	pairingRequests: () => request<PairingRequest[]>(`${API}/pairing/requests`),
+	transfers: () => request<Transfer[]>(`${API}/transfers`),
+	settings: () => request<Settings>(`${API}/settings`),
+	updateSettings: (settings: Settings) => request<Settings>(`${API}/settings`, { method: 'PUT', body: JSON.stringify(settings) }),
+	resetSettings: () => request<Settings>(`${API}/settings/reset`, { method: 'POST' }),
+	refreshDevices: () => request<{ status: string }>(`${API}/discovery/refresh`, { method: 'POST' }),
   action: (id: string, action: 'pause' | 'resume' | 'cancel' | 'retry' | 'reject') =>
-    request<Transfer>(`/transfers/${encodeURIComponent(id)}/${action}`, { method: 'POST' }),
+		request<Transfer>(`${API}/transfers/${encodeURIComponent(id)}/${action}`, { method: 'POST' }),
   accept: (id: string, destinationPath: string, conflictPolicy: ConflictPolicy) =>
-    request<Transfer>(`/transfers/${encodeURIComponent(id)}/accept`, {
+		request<Transfer>(`${API}/transfers/${encodeURIComponent(id)}/accept`, {
       method: 'POST', body: JSON.stringify({ destinationPath, conflictPolicy }),
     }),
-  clearHistory: () => request<void>('/transfers/history', { method: 'DELETE' }),
-  diagnostics: () => request<Diagnostics>('/diagnostics'),
-  runHealthCheck: () => request<Diagnostics['health']>('/health'),
-  sendTestTransfer: () => request<Transfer>('/diagnostics/test-transfer', { method: 'POST' }),
-  simulateFailedTransfer: () => request<{ status: string }>('/diagnostics/simulate-failure', { method: 'POST' }),
-  clearTestData: () => request<{ status: string }>('/diagnostics/clear', { method: 'POST' }),
-  trustDevice: async (deviceId: string) => {
-    const pairing = await request<{ requestId: string }>('/pairing/request', {
-      method: 'POST', body: JSON.stringify({ deviceId }),
-    })
-    return request<TrustedDevice>('/pairing/accept', {
-      method: 'POST', body: JSON.stringify({ requestId: pairing.requestId }),
-    })
-  },
-  createStage: () => request<{ id: string; createdAt: string }>('/transfers/staging', { method: 'POST' }),
-  deleteStage: (id: string) => request<void>(`/transfers/staging/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+	clearHistory: () => request<void>(`${API}/transfers/history`, { method: 'DELETE' }),
+	diagnostics: () => request<Diagnostics>(`${API}/diagnostics`),
+	runHealthCheck: () => request<Diagnostics['health']>(`${API}/health`),
+	sendTestTransfer: () => request<Transfer>(`${API}/diagnostics/test-transfer`, { method: 'POST' }),
+	simulateFailedTransfer: () => request<{ status: string }>(`${API}/diagnostics/simulate-failure`, { method: 'POST' }),
+	clearTestData: () => request<{ status: string }>(`${API}/diagnostics/clear`, { method: 'POST' }),
+	requestPairing: (deviceId: string) => request<PairingRequest>(`${API}/pairing/request`, { method: 'POST', body: JSON.stringify({ deviceId }) }),
+	confirmPairing: (requestId: string) => request<PairingDecision>(`${API}/pairing/accept`, { method: 'POST', body: JSON.stringify({ requestId }) }),
+	refreshPairing: (requestId: string) => request<PairingDecision>(`${API}/pairing/requests/${encodeURIComponent(requestId)}`),
+	rejectPairing: (requestId: string) => request<PairingRequest>(`${API}/pairing/reject`, { method: 'POST', body: JSON.stringify({ requestId }) }),
+	forgetDevice: (deviceId: string) => request<void>(`${API}/pairing/trusted-devices/${encodeURIComponent(deviceId)}`, { method: 'DELETE' }),
+	setDeviceBlocked: (deviceId: string, blocked: boolean) => request<TrustedDevice>(`${API}/pairing/trusted-devices/${encodeURIComponent(deviceId)}/${blocked ? 'block' : 'unblock'}`, { method: 'POST' }),
+	createStage: () => request<{ id: string; createdAt: string }>(`${API}/transfers/staging`, { method: 'POST' }),
+	deleteStage: (id: string) => request<void>(`${API}/transfers/staging/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   queueStage: (id: string, deviceId: string, roots: string[], conflictPolicy: ConflictPolicy) =>
-    request<Transfer>(`/transfers/staging/${encodeURIComponent(id)}/queue`, {
+		request<Transfer>(`${API}/transfers/staging/${encodeURIComponent(id)}/queue`, {
       method: 'POST', body: JSON.stringify({ deviceId, roots, conflictPolicy }),
     }),
 }
@@ -94,7 +98,7 @@ export async function stageAndQueue(
 function uploadFile(stageId: string, item: LocalFile, onProgress: (loaded: number) => void): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
-    xhr.open('PUT', `/transfers/staging/${encodeURIComponent(stageId)}/files?path=${encodeURIComponent(item.relativePath)}`)
+		xhr.open('PUT', `${API}/transfers/staging/${encodeURIComponent(stageId)}/files?path=${encodeURIComponent(item.relativePath)}`)
     xhr.setRequestHeader('Content-Type', item.file.type || 'application/octet-stream')
     xhr.upload.onprogress = (event) => onProgress(event.loaded)
     xhr.onerror = () => reject(new Error('The local upload connection was interrupted'))
@@ -121,7 +125,7 @@ export function connectTransferEvents(
   let closed = false
   const connect = () => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    socket = new WebSocket(`${protocol}//${window.location.host}/ws/transfers`)
+		socket = new WebSocket(`${protocol}//${window.location.host}${API}/ws/transfers`)
     socket.onopen = () => onState(true)
     socket.onmessage = (message) => {
       try { onEvent(JSON.parse(message.data as string) as TransferEvent) } catch (error) { console.warn('SyncSpace ignored a malformed transfer event', error) }

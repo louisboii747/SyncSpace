@@ -1,26 +1,31 @@
-# SQLite schema
+# SQLite schema and migrations
 
-The shared database is `syncspace.db`. Transfer migrations are idempotent and
-enable WAL plus a five-second busy timeout.
+The shared database is `syncspace.db`. A central ordered migrator runs before
+pairing or transfer stores use it. `schema_migrations` records applied versions,
+and each migration is transactional and idempotent for supported legacy data.
 
-- `transfers` is the canonical session row: UUID, direction, sender/receiver
-  device ID, display metadata, path selections, size, aggregate checksum,
-  status, byte progress, speed, ETA, timestamps, attempts, priority, approval,
-  conflict policy, chunk/compression/protocol negotiation, and session secrets.
-- `transfer_files` stores directories and regular-file manifests, including
-  source/destination paths, size, SHA-256, chunk size, and chunk count.
-- `chunks` stores `(transfer, file, index)` completion, offset, size, SHA-256,
-  attempt count, and update time.
-- `queued_transfers` is the durable ordered work view.
-- `paused_transfers` records paused sessions.
-- `failed_transfers` records terminal error text and failure time.
-- `transfer_history` records completed/cancelled terminal sessions.
+Current migration groups:
 
-`SaveTransfer` updates the canonical row, file manifest, and exactly one state
-mirror in a transaction. Chunk completion is upserted only after the partial
-file write has been synced. Timestamps are UTC Unix milliseconds; sizes and
-offsets are signed 64-bit integers, so 100 GB and larger files do not overflow.
+1. legacy trusted-device storage;
+2. durable transfers, files, chunks, queue/pause/failure/history mirrors, and
+   indexes;
+3. cryptographic trust columns for public keys, fingerprints, shared pairing
+   credentials, blocking, and identity-change state.
 
-Session tokens currently live in the local plaintext database, consistent with
-the existing placeholder pairing credential. Platform keystore wrapping is a
-required security follow-up before hostile-device threat models are supported.
+Trust credentials and transfer bearer values are never returned by public JSON.
+They are local authorization secrets in SQLite; protect the data directory with
+normal user permissions and disk encryption.
+
+`transfers` is the canonical session row. `transfer_files` stores portable
+directory/file manifests. `chunks` stores offset, size, SHA-256, attempts, and
+completion for each `(transfer, file, index)`. `queued_transfers`,
+`paused_transfers`, `failed_transfers`, and `transfer_history` mirror durable
+state for efficient recovery and UI queries.
+
+`SaveTransfer` updates the canonical row, manifest, and exactly one state mirror
+inside a transaction. A chunk is upserted only after the partial-file write is
+synced. Timestamps are UTC Unix milliseconds; file sizes and offsets use signed
+64-bit integers.
+
+SQLite uses WAL and a busy timeout. Store constructors invoke the same migrator,
+so upgrading an old checkout does not depend on initialization order.

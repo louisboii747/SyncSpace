@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/louisboii747/syncspace/backend/internal/models"
+	"github.com/louisboii747/syncspace/backend/internal/pairing"
 	"github.com/louisboii747/syncspace/backend/internal/services"
 	"github.com/louisboii747/syncspace/backend/internal/transfer"
 )
@@ -65,11 +66,10 @@ func usage() error {
   syncspace doctor [--url http://127.0.0.1:8384]
   syncspace dev start [--port-a 8384 --port-b 8385]
   syncspace dev verify [--port-a 8384 --port-b 8385]
-  syncspace dev device-a [--port 8384 --peer-port 8385]
-  syncspace dev device-b [--port 8385 --peer-port 8384]
+  syncspace dev device-a [--port 8384 --peer-port 18385 --listen-peer-port 18384]
+  syncspace dev device-b [--port 8385 --peer-port 18384 --listen-peer-port 18385]
   syncspace dev reset
   syncspace dev seed
-  syncspace dev simulate-device [--scenario flaky --trusted]
   syncspace test-transfer
   syncspace export-diagnostics [--output diagnostics.zip]`)
 	return nil
@@ -130,21 +130,27 @@ func devStart(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err = writeIdentity(filepath.Join(root, "device-a"), services.Identity{ID: deviceAID, Name: "SyncSpace Device A", Type: "desktop", Platform: runtime.GOOS}); err != nil {
+	identityA, err := writeIdentity(filepath.Join(root, "device-a"), services.Identity{ID: deviceAID, Name: "SyncSpace Device A", Type: "desktop", Platform: runtime.GOOS})
+	if err != nil {
 		return err
 	}
-	if err = writeIdentity(filepath.Join(root, "device-b"), services.Identity{ID: deviceBID, Name: "SyncSpace Device B", Type: "desktop", Platform: runtime.GOOS}); err != nil {
+	identityB, err := writeIdentity(filepath.Join(root, "device-b"), services.Identity{ID: deviceBID, Name: "SyncSpace Device B", Type: "desktop", Platform: runtime.GOOS})
+	if err != nil {
 		return err
 	}
-	peerA := localPeer(deviceAID, "SyncSpace Device A", *portA)
-	peerB := localPeer(deviceBID, "SyncSpace Device B", *portB)
+	peerPortA, peerPortB := *portA+10000, *portB+10000
+	if peerPortA > 65535 || peerPortB > 65535 {
+		return errors.New("development ports are too high to allocate peer TLS ports")
+	}
+	peerA := localPeer(identityA, peerPortA)
+	peerB := localPeer(identityB, peerPortB)
 	encodedA, _ := json.Marshal([]models.Device{peerB})
 	encodedB, _ := json.Marshal([]models.Device{peerA})
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	commands := []*exec.Cmd{
-		serverCommand(ctx, serverBinary, *portA, filepath.Join(root, "device-a"), string(encodedA)),
-		serverCommand(ctx, serverBinary, *portB, filepath.Join(root, "device-b"), string(encodedB)),
+		serverCommand(ctx, serverBinary, *portA, peerPortA, filepath.Join(root, "device-a"), string(encodedA)),
+		serverCommand(ctx, serverBinary, *portB, peerPortB, filepath.Join(root, "device-b"), string(encodedB)),
 	}
 	for index, command := range commands {
 		command.Stdout = os.Stdout
@@ -168,11 +174,8 @@ func devStart(args []string) error {
 	if err = waitFrontend(urlB); err != nil {
 		return fmt.Errorf("Device B frontend: %w", err)
 	}
-	if err = ensureTrust(urlA, deviceBID); err != nil {
-		return fmt.Errorf("trust B from A: %w", err)
-	}
-	if err = ensureTrust(urlB, deviceAID); err != nil {
-		return fmt.Errorf("trust A from B: %w", err)
+	if err = ensureMutualTrust(urlA, urlB); err != nil {
+		return fmt.Errorf("complete verified development pairing: %w", err)
 	}
 	if *verify {
 		fmt.Println("Two-device lab is healthy; running end-to-end transfer verification...")
@@ -219,9 +222,9 @@ func buildServer(root string) (string, error) {
 	return path, nil
 }
 
-func serverCommand(ctx context.Context, binary string, port int, dataDir, peers string) *exec.Cmd {
+func serverCommand(ctx context.Context, binary string, port, peerPort int, dataDir, peers string) *exec.Cmd {
 	command := exec.CommandContext(ctx, binary)
-	command.Env = append(os.Environ(), fmt.Sprintf("SYNCSPACE_PORT=%d", port), "SYNCSPACE_HOST=127.0.0.1", "SYNCSPACE_DEV_MODE=true", "SYNCSPACE_APP_VERSION=dev-local", "SYNCSPACE_DATA_DIR="+dataDir, "SYNCSPACE_STATIC_PEERS="+peers)
+	command.Env = append(os.Environ(), fmt.Sprintf("SYNCSPACE_PORT=%d", port), fmt.Sprintf("SYNCSPACE_PEER_PORT=%d", peerPort), "SYNCSPACE_HOST=127.0.0.1", "SYNCSPACE_PEER_HOST=127.0.0.1", "SYNCSPACE_DEV_MODE=true", "SYNCSPACE_APP_VERSION=dev-local", "SYNCSPACE_DATA_DIR="+dataDir, "SYNCSPACE_STATIC_PEERS="+peers)
 	return command
 }
 
@@ -231,8 +234,10 @@ func devDevice(label string, args []string) error {
 	if label == "b" {
 		defaultPort, defaultPeerPort = 8385, 8384
 	}
+	defaultPeerPort += 10000
 	port := flags.Int("port", defaultPort, "local device port")
 	peerPort := flags.Int("peer-port", defaultPeerPort, "other local device port")
+	listenPeerPort := flags.Int("listen-peer-port", defaultPort+10000, "this device's encrypted peer port")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -249,13 +254,19 @@ func devDevice(label string, args []string) error {
 		selfID, selfName, peerID, peerName = deviceBID, "SyncSpace Device B", deviceAID, "SyncSpace Device A"
 	}
 	dataDir := filepath.Join(root, "device-"+label)
-	if err = writeIdentity(dataDir, services.Identity{ID: selfID, Name: selfName, Type: "desktop", Platform: runtime.GOOS}); err != nil {
+	_, err = writeIdentity(dataDir, services.Identity{ID: selfID, Name: selfName, Type: "desktop", Platform: runtime.GOOS})
+	if err != nil {
 		return err
 	}
-	peers, _ := json.Marshal([]models.Device{localPeer(peerID, peerName, *peerPort)})
+	peerIdentity := services.Identity{ID: peerID, Name: peerName, Type: "desktop", Platform: runtime.GOOS}
+	peerMetadata, metadataErr := writeIdentity(filepath.Join(root, "device-"+map[string]string{"a": "b", "b": "a"}[label]), peerIdentity)
+	if metadataErr == nil {
+		peerIdentity = peerMetadata
+	}
+	peers, _ := json.Marshal([]models.Device{localPeer(peerIdentity, *peerPort)})
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	command := serverCommand(ctx, binary, *port, dataDir, string(peers))
+	command := serverCommand(ctx, binary, *port, *listenPeerPort, dataDir, string(peers))
 	command.Stdout, command.Stderr = os.Stdout, os.Stderr
 	fmt.Printf("Starting %s at http://127.0.0.1:%d with data in %s\n", selfName, *port, dataDir)
 	return command.Run()
@@ -269,16 +280,19 @@ func stopCommands(commands []*exec.Cmd) {
 	}
 }
 
-func writeIdentity(dataDir string, identity services.Identity) error {
+func writeIdentity(dataDir string, identity services.Identity) (services.Identity, error) {
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
-		return err
+		return services.Identity{}, err
 	}
 	contents, _ := json.MarshalIndent(identity, "", "  ")
-	return os.WriteFile(filepath.Join(dataDir, "identity.json"), append(contents, '\n'), 0o600)
+	if err := os.WriteFile(filepath.Join(dataDir, "identity.json"), append(contents, '\n'), 0o600); err != nil {
+		return services.Identity{}, err
+	}
+	return services.NewFileIdentityStore(filepath.Join(dataDir, "identity.json")).LoadOrCreate()
 }
 
-func localPeer(id, name string, port int) models.Device {
-	return models.Device{ID: id, Name: name, Type: "desktop", Platform: runtime.GOOS, LocalIP: "127.0.0.1", Port: port, AppVersion: "dev-local", LastSeen: time.Now().UTC(), Online: true, ConnectionState: models.ConnectionOnline, AvailableStorage: 1 << 40, TransferCapability: true, SupportedProtocolVersion: transfer.ProtocolVersion, MaximumChunkSize: transfer.MaximumChunkSize, CompressionSupport: true}
+func localPeer(identity services.Identity, port int) models.Device {
+	return models.Device{ID: identity.ID, Name: identity.Name, Type: identity.Type, Platform: identity.Platform, LocalIP: "127.0.0.1", Port: port, AppVersion: "dev-local", LastSeen: time.Now().UTC(), Online: true, ConnectionState: models.ConnectionOnline, AvailableStorage: 1 << 40, TransferCapability: true, SupportedProtocolVersion: transfer.ProtocolVersion, MaximumChunkSize: transfer.MaximumChunkSize, CompressionSupport: true, IdentityHint: identity.ShortFingerprint(), PairingAvailable: true}
 }
 
 func devReset() error {
@@ -326,7 +340,7 @@ func doctor(args []string) error {
 		return err
 	}
 	var health map[string]any
-	if err := jsonRequest(http.MethodGet, *base+"/health", nil, &health); err != nil {
+	if err := jsonRequest(http.MethodGet, *base+"/api/v1/health", nil, &health); err != nil {
 		return err
 	}
 	encoded, _ := json.MarshalIndent(health, "", "  ")
@@ -373,19 +387,21 @@ func testTransfer(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err = ensureTrust(*source, deviceBID); err != nil {
-		return err
+	trustedA, err := isTrusted(*source, deviceBID)
+	if err != nil || !trustedA {
+		return errors.New("devices are not mutually paired; start them with `syncspace dev start` first")
 	}
-	if err = ensureTrust(*destination, deviceAID); err != nil {
-		return err
+	trustedB, err := isTrusted(*destination, deviceAID)
+	if err != nil || !trustedB {
+		return errors.New("devices are not mutually paired; start them with `syncspace dev start` first")
 	}
 	var stage struct {
 		ID string `json:"id"`
 	}
-	if err = jsonRequest(http.MethodPost, *source+"/transfers/staging", map[string]any{}, &stage); err != nil {
+	if err = jsonRequest(http.MethodPost, *source+"/api/v1/transfers/staging", map[string]any{}, &stage); err != nil {
 		return err
 	}
-	request, err := http.NewRequest(http.MethodPut, *source+"/transfers/staging/"+url.PathEscape(stage.ID)+"/files?path=tiny.txt", bytes.NewReader(contents))
+	request, err := http.NewRequest(http.MethodPut, *source+"/api/v1/transfers/staging/"+url.PathEscape(stage.ID)+"/files?path=tiny.txt", bytes.NewReader(contents))
 	if err != nil {
 		return err
 	}
@@ -406,7 +422,7 @@ func testTransfer(args []string) error {
 		return fmt.Errorf("stage upload returned %s", response.Status)
 	}
 	var queued transfer.Transfer
-	if err = jsonRequest(http.MethodPost, *source+"/transfers/staging/"+url.PathEscape(stage.ID)+"/queue", map[string]any{"deviceId": deviceBID, "roots": []string{"tiny.txt"}, "conflictPolicy": "overwrite"}, &queued); err != nil {
+	if err = jsonRequest(http.MethodPost, *source+"/api/v1/transfers/staging/"+url.PathEscape(stage.ID)+"/queue", map[string]any{"deviceId": deviceBID, "roots": []string{"tiny.txt"}, "conflictPolicy": "overwrite"}, &queued); err != nil {
 		return err
 	}
 	received := filepath.Join(root, "device-b", "received")
@@ -417,11 +433,11 @@ func testTransfer(args []string) error {
 	accepted := false
 	for time.Now().Before(deadline) {
 		var incoming []transfer.Transfer
-		if err = jsonRequest(http.MethodGet, *destination+"/transfers", nil, &incoming); err == nil {
+		if err = jsonRequest(http.MethodGet, *destination+"/api/v1/transfers", nil, &incoming); err == nil {
 			for _, item := range incoming {
 				if item.ID == queued.ID && !accepted {
 					var acceptedTransfer transfer.Transfer
-					err = jsonRequest(http.MethodPost, *destination+"/transfers/"+item.ID+"/accept", map[string]any{"destinationPath": received, "conflictPolicy": "overwrite"}, &acceptedTransfer)
+					err = jsonRequest(http.MethodPost, *destination+"/api/v1/transfers/"+item.ID+"/accept", map[string]any{"destinationPath": received, "conflictPolicy": "overwrite"}, &acceptedTransfer)
 					if err == nil {
 						accepted = true
 					}
@@ -429,7 +445,7 @@ func testTransfer(args []string) error {
 			}
 		}
 		var current transfer.Transfer
-		if err = jsonRequest(http.MethodGet, *source+"/transfers/"+queued.ID, nil, &current); err == nil {
+		if err = jsonRequest(http.MethodGet, *source+"/api/v1/transfers/"+queued.ID, nil, &current); err == nil {
 			if current.Status == transfer.StatusCompleted {
 				if current.Size <= 0 || current.Progress != current.Size {
 					return fmt.Errorf("completed transfer progress is %d of %d", current.Progress, current.Size)
@@ -462,7 +478,7 @@ func testTransfer(args []string) error {
 
 func verifyCompletedHistory(base, transferID string) error {
 	var items []transfer.Transfer
-	if err := jsonRequest(http.MethodGet, base+"/transfers", nil, &items); err != nil {
+	if err := jsonRequest(http.MethodGet, base+"/api/v1/transfers", nil, &items); err != nil {
 		return err
 	}
 	for _, item := range items {
@@ -480,7 +496,7 @@ func exportDiagnostics(args []string) error {
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	response, err := http.Get(*base + "/diagnostics/export")
+	response, err := http.Get(*base + "/api/v1/diagnostics/export")
 	if err != nil {
 		return err
 	}
@@ -499,25 +515,88 @@ func exportDiagnostics(args []string) error {
 	return nil
 }
 
-func ensureTrust(base, deviceID string) error {
+func isTrusted(base, deviceID string) (bool, error) {
 	var trusted []struct {
 		DeviceID string `json:"deviceId"`
 	}
-	if err := jsonRequest(http.MethodGet, base+"/pairing/trusted-devices", nil, &trusted); err != nil {
-		return err
+	if err := jsonRequest(http.MethodGet, base+"/api/v1/pairing/trusted-devices", nil, &trusted); err != nil {
+		return false, err
 	}
 	for _, item := range trusted {
 		if item.DeviceID == deviceID {
-			return nil
+			return true, nil
 		}
 	}
-	var request struct {
-		RequestID string `json:"requestId"`
-	}
-	if err := jsonRequest(http.MethodPost, base+"/pairing/request", map[string]string{"deviceId": deviceID}, &request); err != nil {
+	return false, nil
+}
+
+func ensureMutualTrust(baseA, baseB string) error {
+	trustedA, err := isTrusted(baseA, deviceBID)
+	if err != nil {
 		return err
 	}
-	return jsonRequest(http.MethodPost, base+"/pairing/accept", map[string]string{"requestId": request.RequestID}, nil)
+	trustedB, err := isTrusted(baseB, deviceAID)
+	if err != nil {
+		return err
+	}
+	if trustedA && trustedB {
+		return nil
+	}
+	if trustedA {
+		if err := jsonRequest(http.MethodDelete, baseA+"/api/v1/pairing/trusted-devices/"+deviceBID, nil, nil); err != nil {
+			return err
+		}
+	}
+	if trustedB {
+		if err := jsonRequest(http.MethodDelete, baseB+"/api/v1/pairing/trusted-devices/"+deviceAID, nil, nil); err != nil {
+			return err
+		}
+	}
+
+	var initiated pairing.Request
+	if err := jsonRequest(http.MethodPost, baseA+"/api/v1/pairing/request", map[string]string{"deviceId": deviceBID}, &initiated); err != nil {
+		return err
+	}
+	deadline := time.Now().Add(15 * time.Second)
+	var incoming pairing.Request
+	for time.Now().Before(deadline) {
+		var requests []pairing.Request
+		if err := jsonRequest(http.MethodGet, baseB+"/api/v1/pairing/requests", nil, &requests); err == nil {
+			for _, request := range requests {
+				if request.RequestID == initiated.RequestID {
+					incoming = request
+					break
+				}
+			}
+		}
+		if incoming.RequestID != "" {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if incoming.RequestID == "" {
+		return errors.New("receiving device did not surface the pairing request")
+	}
+	if incoming.VerificationCode == "" || incoming.VerificationCode != initiated.VerificationCode {
+		return errors.New("pairing verification codes did not match")
+	}
+	fmt.Printf("Verified development pairing code %s on both isolated devices.\n", initiated.VerificationCode)
+	var first pairing.Decision
+	if err := jsonRequest(http.MethodPost, baseA+"/api/v1/pairing/accept", map[string]string{"requestId": initiated.RequestID}, &first); err != nil {
+		return err
+	}
+	var second pairing.Decision
+	if err := jsonRequest(http.MethodPost, baseB+"/api/v1/pairing/accept", map[string]string{"requestId": initiated.RequestID}, &second); err != nil {
+		return err
+	}
+	for time.Now().Before(deadline) {
+		var decision pairing.Decision
+		if err := jsonRequest(http.MethodGet, baseA+"/api/v1/pairing/requests/"+initiated.RequestID, nil, &decision); err == nil && decision.TrustedDevice != nil {
+			return nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return errors.New("initiating device did not persist paired trust")
 }
 
 func waitHealthy(ctx context.Context, base string, timeout time.Duration) error {
@@ -528,7 +607,7 @@ func waitHealthy(ctx context.Context, base string, timeout time.Duration) error 
 			return ctx.Err()
 		default:
 		}
-		response, err := http.Get(base + "/health")
+		response, err := http.Get(base + "/api/v1/health")
 		if err == nil {
 			response.Body.Close()
 			if response.StatusCode == http.StatusOK {

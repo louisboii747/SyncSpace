@@ -11,6 +11,7 @@ export default defineConfig({
     host: '127.0.0.1',
     port: 5173,
     proxy: {
+      '/api': { target: 'http://127.0.0.1:8384', ws: true },
       '/devices': 'http://127.0.0.1:8384',
       '/device': 'http://127.0.0.1:8384',
       '/discovery': 'http://127.0.0.1:8384',

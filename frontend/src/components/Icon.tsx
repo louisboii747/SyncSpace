@@ -1,8 +1,10 @@
 import type { SVGProps } from 'react'
 
-export type IconName = 'send' | 'devices' | 'history' | 'diagnostics' | 'plus' | 'folder' | 'file' | 'pause' | 'play' | 'close' | 'retry' | 'check' | 'shield' | 'refresh' | 'bell' | 'arrowUp' | 'arrowDown' | 'wifi' | 'more'
+export type IconName = 'home' | 'settings' | 'send' | 'devices' | 'history' | 'diagnostics' | 'plus' | 'folder' | 'file' | 'pause' | 'play' | 'close' | 'retry' | 'check' | 'shield' | 'refresh' | 'bell' | 'arrowUp' | 'arrowDown' | 'wifi' | 'more'
 
 const paths: Record<IconName, React.ReactNode> = {
+	home: <><path d="m3 11 9-8 9 8"/><path d="M5 10v10h14V10M9 20v-6h6v6"/></>,
+	settings: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H3v-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3V3h4v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></>,
   send: <><path d="m4 4 17 8-17 8 3-8-3-8Z"/><path d="M7 12h14"/></>,
   devices: <><rect x="3" y="4" width="13" height="11" rx="2"/><path d="M8 20h3m-1.5-5v5"/><rect x="18" y="8" width="3" height="8" rx="1"/></>,
   history: <><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5m4-1v5l3 2"/></>,

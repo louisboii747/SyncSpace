@@ -10,10 +10,10 @@ const noop = vi.fn()
 
 describe('SyncSpace React views', () => {
   it('renders discovered devices and their trust state', () => {
-    const html = renderToStaticMarkup(<DevicesView devices={[deviceFixture]} trustedIDs={new Set()} onSelect={noop} onPair={noop}/>)
+		const html = renderToStaticMarkup(<DevicesView devices={[deviceFixture]} trusted={[]} onSelect={noop} onPair={noop} onTrustedChanged={noop} onForgot={noop} onError={noop}/>)
     expect(html).toContain('Studio Laptop')
-    expect(html).toContain('Approval needed')
-    expect(html).toContain('Trust device')
+		expect(html).toContain('Verification required')
+		expect(html).toContain('Pair securely')
   })
 
   it('renders transfer queue progress updates', () => {
@@ -33,8 +33,8 @@ describe('SyncSpace React views', () => {
   })
 
   it('renders queue and history empty states', () => {
-    const queue = renderToStaticMarkup(<TransferView devices={[]} trustedIDs={new Set()} selectedDevice="" onSelect={noop} conflictPolicy="rename" onConflictPolicy={noop} upload={{ active: false, completedBytes: 0, totalBytes: 0, currentName: '', completedFiles: 0, totalFiles: 0 }} active={[]} activeCount={0} totalSpeed={0} onBrowseFiles={noop} onBrowseFolder={noop} onPair={noop} onChanged={noop} onError={noop}/>)
-    const history = renderToStaticMarkup(<HistoryView transfers={[]} onChanged={noop} onError={noop} onCleared={noop}/>)
+		const queue = renderToStaticMarkup(<TransferView devices={[]} trustedIDs={new Set()} selectedDevice="" onSelect={noop} conflictPolicy="rename" onConflictPolicy={noop} upload={{ active: false, completedBytes: 0, totalBytes: 0, currentName: '', completedFiles: 0, totalFiles: 0 }} active={[]} activeCount={0} totalSpeed={0} onBrowseFiles={noop} onBrowseFolder={noop} onPair={noop} onChanged={noop} onError={noop} defaultDestination="" defaultConflictPolicy="rename"/>)
+		const history = renderToStaticMarkup(<HistoryView transfers={[]} onChanged={noop} onError={noop} onCleared={noop} defaultDestination="" defaultConflictPolicy="rename"/>)
     expect(queue).toContain('Looking for SyncSpace devices')
     expect(queue).toContain('Nothing in flight')
     expect(history).toContain('Your history is clear')

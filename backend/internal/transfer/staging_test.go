@@ -18,11 +18,16 @@ func TestStagingStreamsNestedFilesAndPromotesTopLevelRoots(t *testing.T) {
 	store, database := newSQLiteStoreForTest(t)
 	defer database.Close()
 	dataDirectory := t.TempDir()
+	identity, err := services.NewFileIdentityStore(filepath.Join(t.TempDir(), "identity.json")).LoadOrCreate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity.Name, identity.Platform = "Local", "test"
 	service, err := NewService(ServiceConfig{
 		Store:         store,
 		Peers:         testPeers{devices: []models.Device{{ID: peerID, Name: "Peer", LocalIP: "127.0.0.1", Port: 8384, Online: true, TransferCapability: true, SupportedProtocolVersion: ProtocolVersion, MaximumChunkSize: MaximumChunkSize}}},
 		Authorizer:    testAuthorizer{trusted: map[string]bool{peerID: true}},
-		Identity:      services.Identity{ID: uuid.NewString(), Name: "Local", Type: "desktop", Platform: "test"},
+		Identity:      identity,
 		DataDirectory: dataDirectory,
 	})
 	if err != nil {

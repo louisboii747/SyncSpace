@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -19,6 +20,7 @@ import (
 	"time"
 
 	"github.com/louisboii747/syncspace/backend/internal/api"
+	appdatabase "github.com/louisboii747/syncspace/backend/internal/database"
 	"github.com/louisboii747/syncspace/backend/internal/devsim"
 	"github.com/louisboii747/syncspace/backend/internal/diagnostics"
 	"github.com/louisboii747/syncspace/backend/internal/discovery"
@@ -26,6 +28,7 @@ import (
 	"github.com/louisboii747/syncspace/backend/internal/models"
 	"github.com/louisboii747/syncspace/backend/internal/pairing"
 	"github.com/louisboii747/syncspace/backend/internal/services"
+	"github.com/louisboii747/syncspace/backend/internal/settings"
 	"github.com/louisboii747/syncspace/backend/internal/transfer"
 	discoveryws "github.com/louisboii747/syncspace/backend/internal/websocket"
 )
@@ -65,6 +68,12 @@ func run(logger *slog.Logger, logBuffer *diagnostics.LogBuffer) error {
 	}
 	database.SetMaxOpenConns(4)
 	defer database.Close()
+	migrationContext, cancelMigrations := context.WithTimeout(context.Background(), 10*time.Second)
+	err = appdatabase.Migrate(migrationContext, database)
+	cancelMigrations()
+	if err != nil {
+		return fmt.Errorf("migrate local database: %w", err)
+	}
 	storeContext, cancelStore := context.WithTimeout(context.Background(), 5*time.Second)
 	trustedDeviceStore, err := pairing.NewSQLiteTrustedDeviceStore(storeContext, database)
 	cancelStore()
@@ -72,12 +81,23 @@ func run(logger *slog.Logger, logBuffer *diagnostics.LogBuffer) error {
 		return fmt.Errorf("create trusted device store: %w", err)
 	}
 
-	listener, err := net.Listen("tcp", config.listenAddress)
+	managementListener, err := net.Listen("tcp", config.managementAddress)
 	if err != nil {
-		return fmt.Errorf("listen on %s: %w", config.listenAddress, err)
+		return fmt.Errorf("listen for local management on %s: %w", config.managementAddress, err)
 	}
-	defer listener.Close()
-	port := listener.Addr().(*net.TCPAddr).Port
+	defer managementListener.Close()
+	peerListener, err := net.Listen("tcp", config.peerAddress)
+	if err != nil {
+		return fmt.Errorf("listen for encrypted peers on %s: %w", config.peerAddress, err)
+	}
+	defer peerListener.Close()
+	managementPort := managementListener.Addr().(*net.TCPAddr).Port
+	peerPort := peerListener.Addr().(*net.TCPAddr).Port
+	certificate, err := identity.TLSCertificate(time.Now())
+	if err != nil {
+		return fmt.Errorf("create peer TLS identity: %w", err)
+	}
+	peerTLSListener := tls.NewListener(peerListener, &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{certificate}})
 
 	discoveryBroker := discoveryws.NewBroker()
 	registry, err := discovery.NewRegistry(discovery.RegistryConfig{
@@ -92,7 +112,7 @@ func run(logger *slog.Logger, logBuffer *diagnostics.LogBuffer) error {
 	}
 	discoveryService, err := discovery.NewService(discovery.ServiceConfig{
 		Identity:             identity,
-		Port:                 port,
+		Port:                 peerPort,
 		AppVersion:           config.appVersion,
 		Registry:             registry,
 		MDNS:                 discovery.NewZeroconfMDNS(),
@@ -111,6 +131,7 @@ func run(logger *slog.Logger, logBuffer *diagnostics.LogBuffer) error {
 	pairingService, err := pairing.NewService(pairing.ServiceConfig{
 		Store:     trustedDeviceStore,
 		Peers:     peerDirectory,
+		Identity:  identity,
 		Publisher: pairingBroker,
 		Logger:    logger,
 	})
@@ -132,6 +153,10 @@ func run(logger *slog.Logger, logBuffer *diagnostics.LogBuffer) error {
 	if err != nil {
 		return fmt.Errorf("create transfer service: %w", err)
 	}
+	settingsStore, err := settings.NewStore(filepath.Join(config.dataDirectory, "settings.json"))
+	if err != nil {
+		return fmt.Errorf("load settings: %w", err)
+	}
 
 	discoverySocketHandler := discoveryws.NewHandler(discoveryBroker, peerDirectory, logger)
 	pairingSocketHandler := discoveryws.NewPairingHandler(pairingBroker, pairingService, logger)
@@ -139,7 +164,7 @@ func run(logger *slog.Logger, logBuffer *diagnostics.LogBuffer) error {
 	var discoveryRunning atomic.Bool
 	diagnosticsService, err := diagnostics.New(diagnostics.Config{
 		Database: database, DatabasePath: databasePath, StoragePath: filepath.Join(config.dataDirectory, "transfers"),
-		BackendURL: "http://127.0.0.1:" + strconv.Itoa(port), Identity: identity, Discovery: peerDirectory,
+		BackendURL: "http://127.0.0.1:" + strconv.Itoa(managementPort), Identity: identity, Discovery: peerDirectory,
 		Trust: pairingService, Transfers: transferService, Logs: logBuffer, DeveloperMode: config.developerMode,
 		DiscoveryState: discoveryRunning.Load,
 		WebSocketState: func() diagnostics.WebSocketState {
@@ -158,10 +183,11 @@ func run(logger *slog.Logger, logBuffer *diagnostics.LogBuffer) error {
 		TransferSocket:  transferSocketHandler.Serve,
 		Diagnostics:     diagnosticsService,
 		Simulator:       peerDirectory,
+		Settings:        settingsStore,
 		Frontend:        frontend.Handler(),
 		Logger:          logger,
 	})
-	httpServer := &http.Server{
+	managementServer := &http.Server{
 		Handler:           router,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       2 * time.Minute,
@@ -169,6 +195,7 @@ func run(logger *slog.Logger, logBuffer *diagnostics.LogBuffer) error {
 		IdleTimeout:       90 * time.Second,
 		MaxHeaderBytes:    1 << 20,
 	}
+	peerServer := &http.Server{Handler: router, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 2 * time.Minute, WriteTimeout: 0, IdleTimeout: 90 * time.Second, MaxHeaderBytes: 1 << 20}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -176,16 +203,18 @@ func run(logger *slog.Logger, logBuffer *diagnostics.LogBuffer) error {
 	go func() { discoveryService.Run(ctx); discoveryRunning.Store(false) }()
 	go transferService.Run(ctx)
 
-	serveResult := make(chan error, 1)
+	serveResult := make(chan error, 2)
 	go func() {
 		logger.Info("Server started",
-			"address", listener.Addr().String(),
+			"management_address", managementListener.Addr().String(),
+			"peer_address", peerListener.Addr().String(),
 			"device_id", identity.ID,
 			"device_name", identity.Name,
 			"version", config.appVersion,
 		)
-		serveResult <- httpServer.Serve(listener)
+		serveResult <- managementServer.Serve(managementListener)
 	}()
+	go func() { serveResult <- peerServer.Serve(peerTLSListener) }()
 
 	var serveErr error
 	select {
@@ -199,8 +228,13 @@ func run(logger *slog.Logger, logBuffer *diagnostics.LogBuffer) error {
 
 	shutdownContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := httpServer.Shutdown(shutdownContext); err != nil {
-		return fmt.Errorf("shut down HTTP server: %w", err)
+	managementErr := managementServer.Shutdown(shutdownContext)
+	peerErr := peerServer.Shutdown(shutdownContext)
+	if managementErr != nil {
+		return fmt.Errorf("shut down management server: %w", managementErr)
+	}
+	if peerErr != nil {
+		return fmt.Errorf("shut down peer server: %w", peerErr)
 	}
 	if serveErr != nil {
 		return serveErr
@@ -210,11 +244,12 @@ func run(logger *slog.Logger, logBuffer *diagnostics.LogBuffer) error {
 }
 
 type serverConfig struct {
-	listenAddress string
-	dataDirectory string
-	appVersion    string
-	developerMode bool
-	staticPeers   []models.Device
+	managementAddress string
+	peerAddress       string
+	dataDirectory     string
+	appVersion        string
+	developerMode     bool
+	staticPeers       []models.Device
 }
 
 func loadConfig() (serverConfig, error) {
@@ -228,7 +263,26 @@ func loadConfig() (serverConfig, error) {
 	}
 	host := os.Getenv("SYNCSPACE_HOST")
 	if host == "" {
-		host = "0.0.0.0"
+		host = "127.0.0.1"
+	}
+	parsedHost := net.ParseIP(strings.Trim(host, "[]"))
+	if parsedHost == nil || !parsedHost.IsLoopback() {
+		return serverConfig{}, errors.New("SYNCSPACE_HOST must be a loopback address; peer traffic uses SYNCSPACE_PEER_HOST")
+	}
+	peerHost := os.Getenv("SYNCSPACE_PEER_HOST")
+	if peerHost == "" {
+		peerHost = "0.0.0.0"
+	}
+	peerPort := port + 1
+	if value := os.Getenv("SYNCSPACE_PEER_PORT"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < 1 || parsed > 65535 {
+			return serverConfig{}, errors.New("SYNCSPACE_PEER_PORT must be between 1 and 65535")
+		}
+		peerPort = parsed
+	}
+	if peerPort > 65535 {
+		return serverConfig{}, errors.New("peer port is outside the valid range; set SYNCSPACE_PEER_PORT")
 	}
 
 	dataDirectory := os.Getenv("SYNCSPACE_DATA_DIR")
@@ -255,10 +309,11 @@ func loadConfig() (serverConfig, error) {
 		}
 	}
 	return serverConfig{
-		listenAddress: net.JoinHostPort(host, strconv.Itoa(port)),
-		dataDirectory: dataDirectory,
-		appVersion:    appVersion,
-		developerMode: developerMode,
-		staticPeers:   staticPeers,
+		managementAddress: net.JoinHostPort(host, strconv.Itoa(port)),
+		peerAddress:       net.JoinHostPort(peerHost, strconv.Itoa(peerPort)),
+		dataDirectory:     dataDirectory,
+		appVersion:        appVersion,
+		developerMode:     developerMode,
+		staticPeers:       staticPeers,
 	}, nil
 }

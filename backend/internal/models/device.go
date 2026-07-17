@@ -42,4 +42,6 @@ type Device struct {
 	SupportedProtocolVersion int             `json:"supportedProtocolVersion"`
 	MaximumChunkSize         int64           `json:"maximumChunkSize"`
 	CompressionSupport       bool            `json:"compressionSupport"`
+	IdentityHint             string          `json:"identityHint"`
+	PairingAvailable         bool            `json:"pairingAvailable"`
 }

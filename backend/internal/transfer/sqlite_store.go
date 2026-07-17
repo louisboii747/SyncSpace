@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	appdatabase "github.com/louisboii747/syncspace/backend/internal/database"
 	_ "modernc.org/sqlite"
 )
 
@@ -28,49 +29,7 @@ func NewSQLiteStore(ctx context.Context, database *sql.DB) (*SQLiteStore, error)
 }
 
 func (s *SQLiteStore) migrate(ctx context.Context) error {
-	statements := []string{
-		`PRAGMA busy_timeout = 5000`,
-		`PRAGMA journal_mode = WAL`,
-		`CREATE TABLE IF NOT EXISTS transfers (
-			id TEXT PRIMARY KEY, direction TEXT NOT NULL, device_id TEXT NOT NULL,
-			device_name TEXT NOT NULL, remote_address TEXT NOT NULL, filename TEXT NOT NULL,
-			path TEXT NOT NULL, source_paths TEXT NOT NULL, size INTEGER NOT NULL,
-			checksum TEXT NOT NULL, status TEXT NOT NULL, progress INTEGER NOT NULL,
-			speed INTEGER NOT NULL, eta_seconds INTEGER NOT NULL, started_at INTEGER,
-			finished_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
-			error TEXT NOT NULL, attempts INTEGER NOT NULL, priority INTEGER NOT NULL,
-			approved INTEGER NOT NULL, approval_required INTEGER NOT NULL,
-			conflict_policy TEXT NOT NULL, chunk_size INTEGER NOT NULL,
-			compression INTEGER NOT NULL, protocol_version INTEGER NOT NULL,
-			session_token TEXT NOT NULL, session_token_hash TEXT NOT NULL
-		)`,
-		`CREATE TABLE IF NOT EXISTS transfer_files (
-			transfer_id TEXT NOT NULL, file_id TEXT NOT NULL, relative_path TEXT NOT NULL,
-			source_path TEXT NOT NULL, destination_path TEXT NOT NULL, directory INTEGER NOT NULL DEFAULT 0, size INTEGER NOT NULL,
-			checksum TEXT NOT NULL, chunk_size INTEGER NOT NULL, chunk_count INTEGER NOT NULL,
-			PRIMARY KEY (transfer_id, file_id),
-			FOREIGN KEY (transfer_id) REFERENCES transfers(id) ON DELETE CASCADE
-		)`,
-		`CREATE TABLE IF NOT EXISTS chunks (
-			transfer_id TEXT NOT NULL, file_id TEXT NOT NULL, chunk_index INTEGER NOT NULL,
-			offset_bytes INTEGER NOT NULL, size INTEGER NOT NULL, checksum TEXT NOT NULL,
-			status TEXT NOT NULL, attempts INTEGER NOT NULL, updated_at INTEGER NOT NULL,
-			PRIMARY KEY (transfer_id, file_id, chunk_index),
-			FOREIGN KEY (transfer_id, file_id) REFERENCES transfer_files(transfer_id, file_id) ON DELETE CASCADE
-		)`,
-		`CREATE TABLE IF NOT EXISTS queued_transfers (transfer_id TEXT PRIMARY KEY, priority INTEGER NOT NULL, queued_at INTEGER NOT NULL)`,
-		`CREATE TABLE IF NOT EXISTS transfer_history (transfer_id TEXT PRIMARY KEY, status TEXT NOT NULL, finished_at INTEGER NOT NULL)`,
-		`CREATE TABLE IF NOT EXISTS failed_transfers (transfer_id TEXT PRIMARY KEY, error TEXT NOT NULL, failed_at INTEGER NOT NULL)`,
-		`CREATE TABLE IF NOT EXISTS paused_transfers (transfer_id TEXT PRIMARY KEY, paused_at INTEGER NOT NULL)`,
-		`CREATE INDEX IF NOT EXISTS idx_transfers_status_priority ON transfers(status, priority, created_at)`,
-		`CREATE INDEX IF NOT EXISTS idx_chunks_transfer_status ON chunks(transfer_id, status)`,
-	}
-	for _, statement := range statements {
-		if _, err := s.database.ExecContext(ctx, statement); err != nil {
-			return fmt.Errorf("initialize transfer store: %w", err)
-		}
-	}
-	return nil
+	return appdatabase.Migrate(ctx, s.database)
 }
 
 func (s *SQLiteStore) SaveTransfer(ctx context.Context, transfer Transfer) error {

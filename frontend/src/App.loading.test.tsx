@@ -3,8 +3,8 @@ import { expect, it, vi } from 'vitest'
 
 vi.mock('./hooks/useSyncSpace', () => ({
   useSyncSpace: () => ({
-    devices: [], trusted: [], trustedIDs: new Set<string>(), transfers: [], active: [], history: [], loading: true, connected: false, error: '', toasts: [], celebration: 0,
-    toast: vi.fn(), reload: vi.fn(), setTrusted: vi.fn(), setTransfers: vi.fn(),
+		devices: [], trusted: [], trustedIDs: new Set<string>(), pairingRequests: [], settings: null, transfers: [], active: [], history: [], loading: true, connected: false, error: '', toasts: [], celebration: 0,
+		toast: vi.fn(), reload: vi.fn(), setTrusted: vi.fn(), setPairingRequests: vi.fn(), setSettings: vi.fn(), setTransfers: vi.fn(),
   }),
 }))
 

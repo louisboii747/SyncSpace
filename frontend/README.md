@@ -1,26 +1,30 @@
 # SyncSpace frontend
 
-The frontend is a React, TypeScript, and Vite application served from the local
-Go backend. It consumes the loopback REST APIs and transfer WebSocket; it never
-connects to a cloud service.
+The frontend is the React 19, TypeScript, and Vite management experience. It
+uses only the local Go management API; peer file traffic is handled by Go.
 
-## Develop
+For hot reload, first run `go run ./backend/cmd/server` at the repository root.
+Then in this directory:
 
-```sh
-npm install
+```powershell
+npm ci
 npm run dev
 ```
 
-Run the backend at `127.0.0.1:8384`. Vite proxies REST and WebSocket traffic to
-that address.
+Open <http://127.0.0.1:5173>. Vite proxies `/api` HTTP and WebSocket traffic to
+`127.0.0.1:8384`.
 
-## Verify and embed
+Validate and regenerate the build embedded by Go:
 
-```sh
+```powershell
 npm run check
 ```
 
-The command runs unit tests, TypeScript validation, and the production build.
-Vite writes hashed assets to `backend/internal/frontend/dist`, which is embedded
-in the Go server. Browser drag-and-drop streams files through the loopback-only
-staging API because web security does not expose absolute filesystem paths.
+That runs Vitest, TypeScript validation, and `vite build`. Output is written to
+`../backend/internal/frontend/dist` and compiled into the Go server. Running
+only `npm run dev` does not update embedded assets.
+
+Browser security does not reveal absolute source paths. File/folder selections
+therefore stream into a private loopback staging session and are then promoted
+into the normal durable transfer queue. The browser never carries peer protocol
+credentials or connects directly to another device.

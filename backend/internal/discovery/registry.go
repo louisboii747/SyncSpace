@@ -183,6 +183,7 @@ func validateDiscoveredDevice(device models.Device) error {
 		strings.TrimSpace(device.Type) == "" || len(device.Type) > 32 ||
 		strings.TrimSpace(device.Platform) == "" || len(device.Platform) > 32 ||
 		strings.TrimSpace(device.AppVersion) == "" || len(device.AppVersion) > 64 ||
+		len(device.IdentityHint) > 32 ||
 		net.ParseIP(device.LocalIP) == nil || device.Port < 1 || device.Port > 65535 {
 		return ErrInvalidDevice
 	}
@@ -190,7 +191,8 @@ func validateDiscoveredDevice(device models.Device) error {
 }
 
 func identityConflicts(existing, incoming models.Device) bool {
-	return existing.Name != incoming.Name || existing.Type != incoming.Type || existing.Platform != incoming.Platform
+	return existing.Name != incoming.Name || existing.Type != incoming.Type || existing.Platform != incoming.Platform ||
+		(existing.IdentityHint != "" && incoming.IdentityHint != "" && existing.IdentityHint != incoming.IdentityHint)
 }
 
 func metadataChanged(existing, incoming models.Device) bool {
@@ -204,7 +206,9 @@ func metadataChanged(existing, incoming models.Device) bool {
 		existing.TransferCapability != incoming.TransferCapability ||
 		existing.SupportedProtocolVersion != incoming.SupportedProtocolVersion ||
 		existing.MaximumChunkSize != incoming.MaximumChunkSize ||
-		existing.CompressionSupport != incoming.CompressionSupport
+		existing.CompressionSupport != incoming.CompressionSupport ||
+		existing.IdentityHint != incoming.IdentityHint ||
+		existing.PairingAvailable != incoming.PairingAvailable
 }
 
 func newEvent(eventType models.DiscoveryEventType, device models.Device, timestamp time.Time) *models.DiscoveryEvent {

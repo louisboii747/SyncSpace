@@ -1,72 +1,160 @@
-# Development
+# Development and command reference
+
+Run all commands from the repository root unless a section says otherwise.
 
 ## Prerequisites
 
 - Go 1.26.4 or newer
 - Node.js 22 or newer
-- npm (included with Node.js)
+- npm, included with Node.js
 
-From the repository root, install frontend packages once with `cd frontend &&
-npm ci`. No global JavaScript packages are required.
+Install the pinned frontend dependencies once:
 
-## Run one normal device
-
-```sh
-go run ./backend/cmd/server
+```powershell
+cd frontend
+npm ci
+cd ..
 ```
 
-The backend listens on `0.0.0.0:8384`, persists its identity and SQLite data in
-the operating system's user configuration directory, advertises over mDNS, and
-serves the embedded React application. Rebuild embedded frontend assets after a
-frontend change:
+## Production-like local run
 
-```sh
+Build the React assets and start the one-device application:
+
+```powershell
 cd frontend
 npm run build
 cd ..
 go run ./backend/cmd/server
 ```
 
-For live frontend work, run `npm run dev` in `frontend/` and the Go server in a
-second terminal. Vite listens on `127.0.0.1:5173` and proxies REST and WebSocket
-traffic to Device A at `127.0.0.1:8384`.
+Open <http://127.0.0.1:8384>. The Go process serves the compiled frontend, the
+loopback management API, and WebSockets at that address. It also starts a
+separate TLS 1.3 peer listener on `0.0.0.0:8385` and advertises that peer port
+over mDNS. LAN clients cannot open the management API or frontend.
 
-## Configuration
+The production build is embedded at compile time from
+`backend/internal/frontend/dist`. Re-run `npm run build` after a frontend
+change and before building or running the embedded experience.
 
-| Variable | Meaning | Default |
-| --- | --- | --- |
-| `SYNCSPACE_HOST` | HTTP listen host | `0.0.0.0` |
-| `SYNCSPACE_PORT` | HTTP and advertised peer port | `8384` |
-| `SYNCSPACE_DATA_DIR` | Identity, SQLite, staging, and transfer root | OS config directory |
-| `SYNCSPACE_APP_VERSION` | Version exposed to peers | build version |
-| `SYNCSPACE_DEV_MODE` | Enables local simulator routes | disabled |
-| `SYNCSPACE_STATIC_PEERS` | JSON array merged with mDNS discovery | empty |
+## Live frontend development
 
-Developer mode does not bypass trust. Static and simulated devices must still
-be approved through the pairing service before transfers are accepted.
+Terminal 1:
 
-## Useful CLI
+```powershell
+go run ./backend/cmd/server
+```
 
-```sh
-go run ./backend/cmd/syncspace doctor
+Terminal 2:
+
+```powershell
+cd frontend
+npm run dev
+```
+
+Open <http://127.0.0.1:5173>. Vite hot-reloads React and proxies `/api` REST and
+WebSocket traffic to the backend. It does not replace the backend: discovery,
+pairing, SQLite, transfers, settings, and diagnostics still run in Go.
+
+## Two-device lab
+
+```powershell
 go run ./backend/cmd/syncspace dev start
+```
+
+This builds one server binary and starts two isolated processes:
+
+| Instance | Management and UI | Encrypted peer listener | Data |
+| --- | --- | --- | --- |
+| Device A | `127.0.0.1:8384` | `127.0.0.1:18384` | `.syncspace-dev/device-a` |
+| Device B | `127.0.0.1:8385` | `127.0.0.1:18385` | `.syncspace-dev/device-b` |
+
+Static loopback discovery is enabled only for this lab. Both processes still
+use real identities, signed pairing, independent trust stores, TLS pinning,
+offer authentication, transfer workers, and persistent SQLite state.
+
+Useful commands:
+
+```powershell
+# Build, start, pair, transfer, verify SHA-256/history, and stop
 go run ./backend/cmd/syncspace dev verify
+
+# Check a running Device A
+go run ./backend/cmd/syncspace doctor --url http://127.0.0.1:8384
+
+# Create deterministic files under .syncspace-dev/seed
 go run ./backend/cmd/syncspace dev seed
-go run ./backend/cmd/syncspace dev simulate-device --scenario flaky --trusted
+
+# Send the seeded tiny file while dev start is running
 go run ./backend/cmd/syncspace test-transfer
+
+# Export a local diagnostics bundle
 go run ./backend/cmd/syncspace export-diagnostics --output diagnostics.zip
+
+# Stop the lab first; then remove only .syncspace-dev
 go run ./backend/cmd/syncspace dev reset
 ```
 
-See [TESTING.md](TESTING.md) for acceptance checks and
-[LOCAL_SIMULATION.md](LOCAL_SIMULATION.md) for scripts and scenario behavior.
+PowerShell and shell wrappers for start, per-device, seed, transfer-test, and
+reset live in `scripts/`. See [LOCAL_SIMULATION.md](LOCAL_SIMULATION.md).
 
-## Engineering rules
+## Server configuration
 
-- Discovery reports presence; it never grants trust.
-- Pairing management and developer controls remain loopback-only.
-- Never mark a transfer complete before whole-file SHA-256 verification.
-- Keep protocol models, persistence, API docs, mDNS capability fields, and UI
-  projections aligned when a wire field changes.
-- Add deterministic tests for failures and recovery; do not depend on physical
-  devices in the default test suite.
+| Variable | Meaning | Default |
+| --- | --- | --- |
+| `SYNCSPACE_HOST` | Management/UI bind address; must be loopback | `127.0.0.1` |
+| `SYNCSPACE_PORT` | Management/UI port | `8384` |
+| `SYNCSPACE_PEER_HOST` | Encrypted peer-protocol bind address | `0.0.0.0` |
+| `SYNCSPACE_PEER_PORT` | Encrypted peer port advertised over mDNS | management port + 1 |
+| `SYNCSPACE_DATA_DIR` | Identity, database, settings, staging, and transfer root | `<user-config>/SyncSpace` |
+| `SYNCSPACE_APP_VERSION` | Version exposed through diagnostics/discovery | linked version or `dev` |
+| `SYNCSPACE_DEV_MODE` | Enables isolated developer fixture routes | disabled |
+| `SYNCSPACE_STATIC_PEERS` | JSON discovery fixtures; rejected unless developer mode is enabled | empty |
+
+PowerShell example with repository-local data and different ports:
+
+```powershell
+$env:SYNCSPACE_DATA_DIR = "$PWD\.local-device"
+$env:SYNCSPACE_PORT = "9000"
+$env:SYNCSPACE_PEER_PORT = "9001"
+go run ./backend/cmd/server
+```
+
+Do not set `SYNCSPACE_HOST` to a LAN address. The server rejects it by design;
+LAN peer traffic belongs on `SYNCSPACE_PEER_HOST`.
+
+## Runtime data
+
+The data directory contains:
+
+- `identity.json`: public device metadata and fingerprint;
+- `identity.key`: protected private identity material (DPAPI ciphertext on
+  Windows; mode-`0600` file on other current builds);
+- `syncspace.db`: schema migrations, trusted identities, queues, chunks,
+  resumable state, and history;
+- `settings.json`: atomically written user settings;
+- `transfers/`: private staging, partial receive files, and managed transfer
+  data.
+
+Never copy one live data directory to two devices. That would clone the same
+device identity. Use a clean directory for each installation.
+
+## Build binaries
+
+```powershell
+go build -o .tmp/syncspace-server.exe ./backend/cmd/server
+go build -o .tmp/syncspace-cli.exe ./backend/cmd/syncspace
+```
+
+On macOS/Linux omit the `.exe` suffix. These commands build the current
+headless/embedded-web product; they do not create an installer or native shell.
+
+## Engineering invariants
+
+- Discovery is untrusted presence and never grants access.
+- Pairing requires proof of identity plus confirmation on both devices.
+- Peer certificates must match the paired Ed25519 key.
+- Management and developer controls remain loopback-only.
+- A transfer is not complete until whole-file SHA-256 verification succeeds.
+- Protocol models, migrations, API docs, discovery capability fields, and UI
+  projections must change together.
+- Default tests use isolated temporary data and never require physical devices.

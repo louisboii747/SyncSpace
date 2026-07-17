@@ -5,11 +5,13 @@ import (
 	"log/slog"
 	"net/http"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/louisboii747/syncspace/backend/internal/diagnostics"
 	"github.com/louisboii747/syncspace/backend/internal/models"
+	"github.com/louisboii747/syncspace/backend/internal/settings"
 )
 
 // DiscoveryService is the API-facing discovery application contract.
@@ -29,6 +31,7 @@ type RouterConfig struct {
 	TransferSocket  gin.HandlerFunc
 	Diagnostics     *diagnostics.Service
 	Simulator       SimulatorService
+	Settings        *settings.Store
 	Frontend        http.Handler
 	Logger          *slog.Logger
 }
@@ -43,25 +46,48 @@ func NewRouter(config RouterConfig) *gin.Engine {
 	router := gin.New()
 	router.Use(requestLogger(logger), recovery(logger))
 
-	router.GET("/devices", func(c *gin.Context) {
+	router.GET("/devices", localOnly(), func(c *gin.Context) {
 		c.JSON(http.StatusOK, config.Discovery.Devices())
 	})
-	router.GET("/device/self", func(c *gin.Context) {
+	router.GET("/device/self", localOnly(), func(c *gin.Context) {
 		c.JSON(http.StatusOK, config.Discovery.Self())
 	})
-	router.POST("/discovery/refresh", func(c *gin.Context) {
+	router.POST("/discovery/refresh", localOnly(), func(c *gin.Context) {
 		config.Discovery.Refresh()
 		c.JSON(http.StatusAccepted, gin.H{"status": "refresh_requested"})
 	})
-	router.GET("/ws/discovery", config.DiscoverySocket)
+	router.GET("/ws/discovery", localOnly(), config.DiscoverySocket)
 	registerPairingRoutes(router, config.Pairing, config.PairingSocket, logger)
 	if config.Transfer != nil {
 		registerTransferRoutes(router, config.Transfer, config.TransferSocket, logger)
 	}
 	registerDiagnosticsRoutes(router, config.Diagnostics, config.Simulator, config.Pairing)
-	if config.Frontend != nil {
-		router.NoRoute(localOnly(), gin.WrapH(config.Frontend))
-	}
+	registerSettingsRoutes(router, config.Settings)
+	router.NoRoute(func(c *gin.Context) {
+		if strings.HasPrefix(c.Request.URL.Path, "/api/v1/") && !c.GetBool("syncspace_api_reroute") {
+			if !isLoopbackRequest(c.Request.RemoteAddr) {
+				c.JSON(http.StatusForbidden, gin.H{"error": "local management is available only from this device"})
+				return
+			}
+			c.Set("syncspace_api_reroute", true)
+			c.Request.URL.Path = strings.TrimPrefix(c.Request.URL.Path, "/api/v1")
+			router.HandleContext(c)
+			return
+		}
+		if c.GetBool("syncspace_api_reroute") {
+			c.JSON(http.StatusNotFound, gin.H{"error": "API route not found"})
+			return
+		}
+		if config.Frontend == nil {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		localOnly()(c)
+		if c.IsAborted() {
+			return
+		}
+		gin.WrapH(config.Frontend)(c)
+	})
 	return router
 }
 

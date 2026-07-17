@@ -106,6 +106,8 @@ func NewService(config ServiceConfig) (*Service, error) {
 			SupportedProtocolVersion: config.TransferCapabilities.ProtocolVersion,
 			MaximumChunkSize:         config.TransferCapabilities.MaxChunkSize,
 			CompressionSupport:       config.TransferCapabilities.CompressionSupport,
+			IdentityHint:             config.Identity.ShortFingerprint(),
+			PairingAvailable:         true,
 		},
 	}, nil
 }
@@ -197,6 +199,8 @@ func (s *Service) runSession(ctx context.Context) error {
 			"max_chunk=" + strconv.FormatInt(local.MaximumChunkSize, 10),
 			"compression=" + strconv.FormatBool(local.CompressionSupport),
 			"available_storage=" + strconv.FormatInt(local.AvailableStorage, 10),
+			"identity_hint=" + local.IdentityHint,
+			"pairing=" + strconv.FormatBool(local.PairingAvailable),
 		},
 	}
 	advertiser, err := s.mdns.Advertise(advertisement)
@@ -335,6 +339,8 @@ func parseAdvertisement(advertisement Advertisement) (models.Device, error) {
 	device.MaximumChunkSize, _ = strconv.ParseInt(values["max_chunk"], 10, 64)
 	device.CompressionSupport, _ = strconv.ParseBool(values["compression"])
 	device.AvailableStorage, _ = strconv.ParseInt(values["available_storage"], 10, 64)
+	device.IdentityHint = values["identity_hint"]
+	device.PairingAvailable, _ = strconv.ParseBool(values["pairing"])
 	if err := validateDiscoveredDevice(device); err != nil {
 		return models.Device{}, err
 	}

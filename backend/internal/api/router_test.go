@@ -33,13 +33,26 @@ func (s *fakePairingService) TrustedDevices(context.Context) ([]pairing.TrustedD
 func (s *fakePairingService) RequestPairing(context.Context, string) (pairing.Request, error) {
 	return pairing.Request{}, nil
 }
-func (s *fakePairingService) Accept(context.Context, string) (pairing.TrustedDevice, error) {
-	return pairing.TrustedDevice{}, nil
+func (s *fakePairingService) Requests() []pairing.Request { return nil }
+func (s *fakePairingService) Accept(context.Context, string) (pairing.Decision, error) {
+	return pairing.Decision{}, nil
 }
-func (s *fakePairingService) Reject(string) (pairing.Request, error) {
+func (s *fakePairingService) Refresh(context.Context, string) (pairing.Decision, error) {
+	return pairing.Decision{}, nil
+}
+func (s *fakePairingService) Reject(context.Context, string) (pairing.Request, error) {
 	return pairing.Request{}, nil
 }
+func (s *fakePairingService) ReceiveBegin(context.Context, pairing.BeginRequest, string) (pairing.BeginResponse, error) {
+	return pairing.BeginResponse{}, nil
+}
+func (s *fakePairingService) ReceiveProof(context.Context, pairing.Proof) (pairing.PeerDecision, error) {
+	return pairing.PeerDecision{}, nil
+}
 func (s *fakePairingService) RemoveTrustedDevice(context.Context, string) (pairing.TrustedDevice, error) {
+	return pairing.TrustedDevice{}, nil
+}
+func (s *fakePairingService) SetBlocked(context.Context, string, bool) (pairing.TrustedDevice, error) {
 	return pairing.TrustedDevice{}, nil
 }
 
@@ -61,7 +74,9 @@ func TestDiscoveryRoutes(t *testing.T) {
 	})
 
 	devicesResponse := httptest.NewRecorder()
-	router.ServeHTTP(devicesResponse, httptest.NewRequest(http.MethodGet, "/devices", nil))
+	devicesRequest := httptest.NewRequest(http.MethodGet, "/devices", nil)
+	devicesRequest.RemoteAddr = "127.0.0.1:54321"
+	router.ServeHTTP(devicesResponse, devicesRequest)
 	if devicesResponse.Code != http.StatusOK {
 		t.Fatalf("GET /devices status = %d", devicesResponse.Code)
 	}
@@ -71,7 +86,9 @@ func TestDiscoveryRoutes(t *testing.T) {
 	}
 
 	selfResponse := httptest.NewRecorder()
-	router.ServeHTTP(selfResponse, httptest.NewRequest(http.MethodGet, "/device/self", nil))
+	selfRequest := httptest.NewRequest(http.MethodGet, "/device/self", nil)
+	selfRequest.RemoteAddr = "127.0.0.1:54321"
+	router.ServeHTTP(selfResponse, selfRequest)
 	if selfResponse.Code != http.StatusOK {
 		t.Fatalf("GET /device/self status = %d", selfResponse.Code)
 	}
@@ -81,8 +98,51 @@ func TestDiscoveryRoutes(t *testing.T) {
 	}
 
 	refreshResponse := httptest.NewRecorder()
-	router.ServeHTTP(refreshResponse, httptest.NewRequest(http.MethodPost, "/discovery/refresh", nil))
+	refreshRequest := httptest.NewRequest(http.MethodPost, "/discovery/refresh", nil)
+	refreshRequest.RemoteAddr = "127.0.0.1:54321"
+	router.ServeHTTP(refreshResponse, refreshRequest)
 	if refreshResponse.Code != http.StatusAccepted || service.refreshes.Load() != 1 {
 		t.Fatalf("POST /discovery/refresh status = %d, refreshes = %d", refreshResponse.Code, service.refreshes.Load())
+	}
+}
+
+func TestVersionedManagementAliasAndCrossOriginProtection(t *testing.T) {
+	service := &fakeDiscoveryService{devices: []models.Device{{ID: "peer"}}}
+	router := NewRouter(RouterConfig{Discovery: service, DiscoverySocket: func(c *gin.Context) { c.Status(http.StatusSwitchingProtocols) }, Pairing: &fakePairingService{}, PairingSocket: func(c *gin.Context) { c.Status(http.StatusSwitchingProtocols) }, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	versioned := httptest.NewRequest(http.MethodGet, "/api/v1/devices", nil)
+	versioned.RemoteAddr = "127.0.0.1:54321"
+	versionedResponse := httptest.NewRecorder()
+	router.ServeHTTP(versionedResponse, versioned)
+	if versionedResponse.Code != http.StatusOK {
+		t.Fatalf("versioned devices status=%d body=%s", versionedResponse.Code, versionedResponse.Body)
+	}
+
+	crossSite := httptest.NewRequest(http.MethodPost, "/api/v1/discovery/refresh", nil)
+	crossSite.RemoteAddr = "127.0.0.1:54321"
+	crossSite.Host = "127.0.0.1:8384"
+	crossSite.Header.Set("Origin", "https://malicious.example")
+	crossSite.Header.Set("Sec-Fetch-Site", "cross-site")
+	crossSiteResponse := httptest.NewRecorder()
+	router.ServeHTTP(crossSiteResponse, crossSite)
+	if crossSiteResponse.Code != http.StatusForbidden {
+		t.Fatalf("cross-origin mutation status=%d", crossSiteResponse.Code)
+	}
+
+	otherLocalPort := httptest.NewRequest(http.MethodPost, "/api/v1/discovery/refresh", nil)
+	otherLocalPort.RemoteAddr = "127.0.0.1:54321"
+	otherLocalPort.Host = "127.0.0.1:8384"
+	otherLocalPort.Header.Set("Origin", "http://127.0.0.1:5173")
+	otherLocalPortResponse := httptest.NewRecorder()
+	router.ServeHTTP(otherLocalPortResponse, otherLocalPort)
+	if otherLocalPortResponse.Code != http.StatusForbidden {
+		t.Fatalf("different localhost origin status=%d", otherLocalPortResponse.Code)
+	}
+
+	missing := httptest.NewRequest(http.MethodGet, "/api/v1/does-not-exist", nil)
+	missing.RemoteAddr = "127.0.0.1:54321"
+	missingResponse := httptest.NewRecorder()
+	router.ServeHTTP(missingResponse, missing)
+	if missingResponse.Code != http.StatusNotFound {
+		t.Fatalf("unknown versioned route status=%d body=%s", missingResponse.Code, missingResponse.Body)
 	}
 }

@@ -1,135 +1,103 @@
 # Testing SyncSpace
 
-All commands below run from the repository root unless stated otherwise.
+Run all commands from the repository root.
 
-## Complete local acceptance check
+## Complete acceptance sequence
 
-```sh
+```powershell
 go test ./...
 go vet ./...
-cd frontend && npm run check && cd ..
+cd frontend
+npm ci
+npm run check
+cd ..
 go run ./backend/cmd/syncspace dev verify
 ```
 
-`dev verify` is the end-to-end test. It builds the server, creates isolated
-Device A and Device B data roots, starts both backend processes, waits for both
-health endpoints, explicitly pairs both directions, stages and queues a file,
-confirms both embedded React entrypoints, accepts it on Device B, waits for
-100%, compares SHA-256, confirms the persisted transfer state, then stops both
-devices. It requires no physical device.
+`npm run check` runs Vitest, TypeScript validation, and a production build. The
+build regenerates the frontend assets embedded by Go.
 
-## Backend tests
+`dev verify` builds and starts two isolated backend processes, checks both
+management APIs and embedded entrypoints, completes signed X25519/Ed25519
+pairing with the same verification code on both sides, sends a real staged file
+over identity-pinned TLS, accepts it on the receiver, compares SHA-256, verifies
+both persisted histories, and stops both processes.
 
-```sh
+## Backend coverage
+
+```powershell
 go test ./...
 go vet ./...
+go test -race ./...
 ```
 
 Focused loops:
 
-```sh
-go test ./backend/internal/transfer
-go test ./backend/internal/devsim ./backend/internal/diagnostics
+```powershell
+go test ./backend/internal/services ./backend/internal/pairing
+go test ./backend/internal/transfer ./backend/internal/database
 go test ./backend/internal/api ./backend/internal/websocket
+go test ./backend/internal/discovery ./backend/internal/settings
 ```
 
-The suite covers tiny and multi-file/folder transfers, a large compressed file,
-out-of-order chunks, cancellation, pause/resume, interrupted and flaky peers,
-retry, rejection/acceptance, disk-full faults, corrupt chunks, final checksum
-mismatch, overwrite/rename behavior, SQLite history, and restart recovery.
+Tests cover identity persistence and private-key separation, certificate
+pinning, signed pairing, dual confirmation, code agreement, expiry/rejection,
+replay rejection, identity-hint changes, durable trust, migration upgrades,
+authenticated offers, resumable and out-of-order chunks, retry/pause/cancel,
+disk and checksum failures, conflict policies, restart recovery, local API
+origin enforcement, settings validation, and diagnostics.
 
-## Frontend tests and validation
+## Frontend coverage
 
-```sh
+```powershell
 cd frontend
 npm ci
-npm run lint
 npm test
+npm run lint
 npm run build
 ```
 
-Vitest renders the real React views and validates discovery lists, transfer
-queues, progress changes, failed/completed states, diagnostics, loading/empty
-states, and WebSocket event parsing. `npm run build` also regenerates the assets
-embedded by the Go server.
+Vitest renders the actual React views and validates loading/empty states,
+device trust projections, transfer controls, progress/history, diagnostics, API
+parsing, and WebSocket event handling. The type build checks all page and API
+contracts.
 
-## Run two local devices interactively
+## Manual two-computer acceptance
 
-```sh
-go run ./backend/cmd/syncspace dev start
-```
+1. Run `npm ci && npm run build` inside `frontend/` on each checkout.
+2. Run `go run ./backend/cmd/server` on both computers on the same LAN.
+3. Open `http://127.0.0.1:8384` locally on both. Confirm the peer appears only
+   as discovered, not trusted.
+4. Pair from one side. Confirm the six-digit code and fingerprint match on both
+   screens, approve both, and check that **Verified** appears.
+5. Transfer a small file and a nested folder. Approve the inbound offer and
+   verify content at the destination.
+6. Pause/resume a larger transfer, restart one process during queued work, and
+   verify recovery/history.
+7. Block the peer and confirm new offers fail; unblock it and confirm transfer
+   works; forget it and confirm a new pairing is required.
+8. Change Settings, restart, and confirm persistence. Export Diagnostics and
+   review it for sensitive paths before sharing.
 
-Open Device A at `http://127.0.0.1:8384` and Device B at
-`http://127.0.0.1:8385`. Each has a fixed unique device ID and its own
-`identity.json`, `syncspace.db`, staging root, receive root, and transfer store
-under `.syncspace-dev/device-a` or `.syncspace-dev/device-b`.
-
-To run them in separate terminals instead:
+Windows can independently confirm a received file with:
 
 ```powershell
-.\scripts\dev-device-a.ps1
-.\scripts\dev-device-b.ps1
+Get-FileHash <path> -Algorithm SHA256
 ```
 
-On macOS/Linux use `sh scripts/dev-device-a` and `sh scripts/dev-device-b`.
+On macOS/Linux use `sha256sum <path>` (or `shasum -a 256 <path>` on macOS).
 
-## Send a transfer in the running lab
+## Browser QA status
 
-```sh
-go run ./backend/cmd/syncspace test-transfer
-```
-
-Seed data can be created separately with `go run
-./backend/cmd/syncspace dev seed`. The destination is
-`.syncspace-dev/device-b/received/tiny.txt`.
-
-## Test with two physical devices
-
-1. Build the frontend with `cd frontend && npm ci && npm run build` on each
-   machine, then return to the repository root.
-2. Run `go run ./backend/cmd/server` on both machines while they are on the same
-   trusted LAN.
-3. Open `http://127.0.0.1:8384` on each machine and confirm the other device is
-   shown under Devices.
-4. Choose **Trust device** independently on both machines. Discovery alone does
-   not grant trust.
-5. On the sender, choose the peer and queue a file. On the receiver, approve the
-   incoming transfer and choose a destination path.
-6. Confirm both UIs report Completed, the received file exists, and its SHA-256
-   matches (`Get-FileHash <path> -Algorithm SHA256` on PowerShell or `sha256sum
-   <path>` on macOS/Linux).
-
-Peer transport is not yet encrypted/authenticated beyond the current trust and
-session-token checks; use a LAN you control.
-
-## Reset test data
-
-Stop the local lab first, then run:
-
-```sh
-go run ./backend/cmd/syncspace dev reset
-```
-
-This command only removes the repository-local `.syncspace-dev` directory and
-refuses unexpected paths. The Diagnostics page's **Clear test data** action
-clears completed/cancelled history and removes simulated peers and their trust
-records without deleting normal device identity.
-
-## Logs and diagnostics
-
-Backend logs are human-readable on stdout. Open the Diagnostics page for a
-bounded log preview and last-error list, run `go run
-./backend/cmd/syncspace doctor`, or export a ZIP with:
-
-```sh
-go run ./backend/cmd/syncspace export-diagnostics --output diagnostics.zip
-```
-
-See [DIAGNOSTICS.md](DIAGNOSTICS.md) for endpoint details and redaction notes.
+Automated DOM tests and production builds run in CI. A manual browser pass
+should cover desktop width, a narrow mobile viewport, keyboard focus, reduced
+motion, system/light/dark appearance, long filenames, pairing expiry/errors,
+offline devices, large queues, and incoming destination overflow. Record any
+environment where a real browser was unavailable rather than claiming a visual
+pass.
 
 ## CI
 
-`.github/workflows/test.yml` runs backend tests/vet/build, frontend type
-validation/tests/build, and `dev verify` on Linux. The smoke test uses two real
-backend processes but only loopback networking and deterministic static peer
-records, which avoids mDNS timing as an acceptance dependency.
+`.github/workflows/test.yml` runs on Linux and performs backend tests/vet/build,
+frontend dependency install/tests/type validation/build, and the encrypted
+two-process `dev verify` smoke test on every push and pull request.

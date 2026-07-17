@@ -29,17 +29,31 @@ func (s *recordingPairingService) RequestPairing(_ context.Context, id string) (
 	s.requestedID = id
 	return pairing.Request{DeviceID: id}, nil
 }
-func (s *recordingPairingService) Accept(_ context.Context, id string) (pairing.TrustedDevice, error) {
+func (s *recordingPairingService) Requests() []pairing.Request { return nil }
+func (s *recordingPairingService) Accept(_ context.Context, id string) (pairing.Decision, error) {
 	s.acceptedID = id
-	return pairing.TrustedDevice{DeviceID: "accepted"}, nil
+	device := pairing.TrustedDevice{DeviceID: "accepted"}
+	return pairing.Decision{TrustedDevice: &device}, nil
 }
-func (s *recordingPairingService) Reject(id string) (pairing.Request, error) {
+func (s *recordingPairingService) Refresh(context.Context, string) (pairing.Decision, error) {
+	return pairing.Decision{}, nil
+}
+func (s *recordingPairingService) Reject(_ context.Context, id string) (pairing.Request, error) {
 	s.rejectedID = id
 	return pairing.Request{RequestID: id}, nil
+}
+func (s *recordingPairingService) ReceiveBegin(context.Context, pairing.BeginRequest, string) (pairing.BeginResponse, error) {
+	return pairing.BeginResponse{}, nil
+}
+func (s *recordingPairingService) ReceiveProof(context.Context, pairing.Proof) (pairing.PeerDecision, error) {
+	return pairing.PeerDecision{}, nil
 }
 func (s *recordingPairingService) RemoveTrustedDevice(_ context.Context, id string) (pairing.TrustedDevice, error) {
 	s.removedID = id
 	return pairing.TrustedDevice{DeviceID: id}, nil
+}
+func (s *recordingPairingService) SetBlocked(context.Context, string, bool) (pairing.TrustedDevice, error) {
+	return pairing.TrustedDevice{}, nil
 }
 
 func TestPairingRoutes(t *testing.T) {

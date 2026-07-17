@@ -17,6 +17,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -53,7 +55,7 @@ func (s *Service) processOutbound(ctx context.Context, id string) error {
 	if !found || !peer.Online {
 		return errors.New("destination device is offline")
 	}
-	t.RemoteAddress = peerAddress(peer)
+	t.RemoteAddress = s.peerAddress(peer)
 	if t.SessionToken == "" {
 		t.SessionToken, err = generateToken()
 		if err != nil {
@@ -77,7 +79,7 @@ func (s *Service) processOutbound(ctx context.Context, id string) error {
 		return err
 	}
 	var response OfferResponse
-	if err = s.jsonRequest(ctx, http.MethodPost, t.RemoteAddress+"/v1/transfers/offers", "", offer, &response); err != nil {
+	if err = s.jsonRequest(ctx, http.MethodPost, t.RemoteAddress+"/v1/transfers/offers", t.DeviceID, "", offer, &response); err != nil {
 		return fmt.Errorf("negotiate transfer: %w", err)
 	}
 	var resume ResumeMap
@@ -170,7 +172,7 @@ enqueue:
 		return err
 	}
 	var completedTransfer Transfer
-	if err = s.jsonRequest(ctx, http.MethodPost, t.RemoteAddress+"/v1/transfers/"+url.PathEscape(t.ID)+"/complete", t.SessionToken, nil, &completedTransfer); err != nil {
+	if err = s.jsonRequest(ctx, http.MethodPost, t.RemoteAddress+"/v1/transfers/"+url.PathEscape(t.ID)+"/complete", t.DeviceID, t.SessionToken, nil, &completedTransfer); err != nil {
 		return fmt.Errorf("finalize remote transfer: %w", err)
 	}
 	latest, err := s.Get(ctx, t.ID)
@@ -184,7 +186,7 @@ enqueue:
 
 func (s *Service) remoteStatus(ctx context.Context, t Transfer) (ResumeMap, error) {
 	var result ResumeMap
-	err := s.jsonRequest(ctx, http.MethodGet, t.RemoteAddress+"/v1/transfers/"+url.PathEscape(t.ID)+"/status", t.SessionToken, nil, &result)
+	err := s.jsonRequest(ctx, http.MethodGet, t.RemoteAddress+"/v1/transfers/"+url.PathEscape(t.ID)+"/status", t.DeviceID, t.SessionToken, nil, &result)
 	return result, err
 }
 
@@ -236,7 +238,11 @@ func (s *Service) sendChunk(ctx context.Context, t Transfer, file File, index in
 		if encoding != "" {
 			request.Header.Set("Content-Encoding", encoding)
 		}
-		response, err := s.httpClient.Do(request)
+		client, clientErr := s.peerClient(ctx, t.DeviceID)
+		if clientErr != nil {
+			return clientErr
+		}
+		response, err := client.Do(request)
 		if err == nil {
 			io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
 			response.Body.Close()
@@ -258,10 +264,12 @@ func (s *Service) sendChunk(ctx context.Context, t Transfer, file File, index in
 	return fmt.Errorf("send chunk after %d attempts: %w", chunkRetryLimit, lastErr)
 }
 
-func (s *Service) jsonRequest(ctx context.Context, method, endpoint, token string, input, output any) error {
+func (s *Service) jsonRequest(ctx context.Context, method, endpoint, deviceID, token string, input, output any) error {
 	var body io.Reader
+	var encoded []byte
 	if input != nil {
-		encoded, err := json.Marshal(input)
+		var err error
+		encoded, err = json.Marshal(input)
 		if err != nil {
 			return err
 		}
@@ -276,8 +284,22 @@ func (s *Service) jsonRequest(ctx context.Context, method, endpoint, token strin
 	}
 	if token != "" {
 		request.Header.Set("Authorization", "Bearer "+token)
+	} else if offer, ok := input.(Offer); ok {
+		sharedKey, err := s.authorizer.SharedKey(ctx, deviceID)
+		if err != nil {
+			return err
+		}
+		timestamp, nonce := strconv.FormatInt(s.now().UTC().Unix(), 10), uuid.NewString()
+		request.Header.Set("X-SyncSpace-Device-ID", offer.DeviceID)
+		request.Header.Set("X-SyncSpace-Timestamp", timestamp)
+		request.Header.Set("X-SyncSpace-Nonce", nonce)
+		request.Header.Set("X-SyncSpace-Signature", offerSignature(sharedKey, method, request.URL.Path, offer.DeviceID, timestamp, nonce, encoded))
 	}
-	response, err := s.httpClient.Do(request)
+	client, err := s.peerClient(ctx, deviceID)
+	if err != nil {
+		return err
+	}
+	response, err := client.Do(request)
 	if err != nil {
 		return err
 	}

@@ -16,7 +16,7 @@ import (
 
 type TransferService interface {
 	Queue(context.Context, transfer.QueueRequest) (transfer.Transfer, error)
-	ReceiveOffer(context.Context, transfer.Offer, string) (transfer.Transfer, error)
+	ReceiveOffer(context.Context, transfer.Offer, string, transfer.PeerAuthentication) (transfer.Transfer, error)
 	List(context.Context) ([]transfer.Transfer, error)
 	Get(context.Context, string) (transfer.Transfer, error)
 	DeleteHistory(context.Context) error
@@ -160,7 +160,8 @@ func registerTransferRoutes(router *gin.Engine, service TransferService, socket 
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid transfer offer"})
 			return
 		}
-		value, err := service.ReceiveOffer(c.Request.Context(), body, remoteHost(c.Request.RemoteAddr))
+		authentication := transfer.PeerAuthentication{DeviceID: c.GetHeader("X-SyncSpace-Device-ID"), Timestamp: c.GetHeader("X-SyncSpace-Timestamp"), Nonce: c.GetHeader("X-SyncSpace-Nonce"), Signature: c.GetHeader("X-SyncSpace-Signature")}
+		value, err := service.ReceiveOffer(c.Request.Context(), body, remoteHost(c.Request.RemoteAddr), authentication)
 		if err != nil {
 			writeTransferError(c, logger, err)
 			return

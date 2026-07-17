@@ -33,6 +33,16 @@ func (diagnosticTrust) IsTrusted(context.Context, string) (bool, error) { return
 
 type diagnosticTransfers struct{ items []transfer.Transfer }
 
+func newDiagnosticIdentity(t *testing.T) services.Identity {
+	t.Helper()
+	identity, err := services.NewFileIdentityStore(filepath.Join(t.TempDir(), "identity.json")).LoadOrCreate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity.ID, identity.Name, identity.Platform = "00000000-0000-4000-8000-00000000000a", "Device A", "test"
+	return identity
+}
+
 func (d diagnosticTransfers) List(context.Context) ([]transfer.Transfer, error) {
 	return d.items, nil
 }
@@ -48,7 +58,7 @@ func TestHealthSnapshotAndExportDescribeAWorkingRuntime(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = database.Close() })
 	storage := filepath.Join(t.TempDir(), "transfers")
-	identity := services.Identity{ID: "00000000-0000-4000-8000-00000000000a", Name: "Device A", Type: "desktop", Platform: "test"}
+	identity := newDiagnosticIdentity(t)
 	device := models.Device{ID: identity.ID, Name: identity.Name, Type: identity.Type, Platform: identity.Platform, Online: true, TransferCapability: true}
 	buffer := NewLogBuffer(slog.NewTextHandler(io.Discard, nil), 20)
 	logger := slog.New(buffer)
@@ -59,7 +69,7 @@ func TestHealthSnapshotAndExportDescribeAWorkingRuntime(t *testing.T) {
 		BackendURL: "http://127.0.0.1:8384", Identity: identity,
 		Discovery: diagnosticDiscovery{self: device}, Trust: diagnosticTrust{},
 		Transfers: diagnosticTransfers{items: []transfer.Transfer{{ID: "queued", Status: transfer.StatusQueued}}},
-		Logs: buffer, DeveloperMode: true, DiscoveryState: func() bool { return true },
+		Logs:      buffer, DeveloperMode: true, DiscoveryState: func() bool { return true },
 		WebSocketState: func() WebSocketState { return WebSocketState{Transfers: 1} },
 	})
 	if err != nil {
@@ -105,7 +115,7 @@ func TestHealthReportsStoppedDiscoveryAndUnwritableStorage(t *testing.T) {
 	if err = os.WriteFile(file, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	identity := services.Identity{ID: "00000000-0000-4000-8000-00000000000a", Name: "Device A", Type: "desktop", Platform: "test"}
+	identity := newDiagnosticIdentity(t)
 	service, err := New(Config{
 		Database: database, StoragePath: file, Identity: identity,
 		Discovery: diagnosticDiscovery{}, Trust: diagnosticTrust{}, Transfers: diagnosticTransfers{},

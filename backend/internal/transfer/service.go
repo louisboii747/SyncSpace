@@ -3,11 +3,14 @@ package transfer
 import (
 	"compress/gzip"
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -29,6 +33,8 @@ import (
 type PeerDirectory interface{ Devices() []models.Device }
 type DeviceAuthorizer interface {
 	IsTrusted(context.Context, string) (bool, error)
+	SharedKey(context.Context, string) ([]byte, error)
+	PublicKey(context.Context, string) (ed25519.PublicKey, error)
 }
 
 type ServiceConfig struct {
@@ -58,6 +64,10 @@ type Service struct {
 	publisher     EventPublisher
 	logger        *slog.Logger
 	httpClient    *http.Client
+	peerScheme    string
+	peerClients   map[string]*http.Client
+	authMu        sync.Mutex
+	authNonces    map[string]time.Time
 	maxConcurrent int
 	chunkWorkers  int
 	chunkSize     int64
@@ -84,10 +94,9 @@ func NewService(config ServiceConfig) (*Service, error) {
 	if config.Logger == nil {
 		config.Logger = slog.Default()
 	}
-	if config.HTTPClient == nil {
-		config.HTTPClient = &http.Client{Timeout: 5 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error {
-			return errors.New("transfer protocol redirects are not allowed")
-		}}
+	peerScheme := "https"
+	if config.HTTPClient != nil {
+		peerScheme = "http"
 	}
 	if config.MaxConcurrent <= 0 {
 		config.MaxConcurrent = 2
@@ -104,7 +113,7 @@ func NewService(config ServiceConfig) (*Service, error) {
 	if config.Now == nil {
 		config.Now = time.Now
 	}
-	return &Service{store: config.Store, peers: config.Peers, authorizer: config.Authorizer, identity: config.Identity, dataDirectory: config.DataDirectory, publisher: config.Publisher, logger: config.Logger, httpClient: config.HTTPClient, maxConcurrent: config.MaxConcurrent, chunkWorkers: config.ChunkWorkers, chunkSize: config.ChunkSize, now: config.Now, wake: make(chan struct{}, 1), active: make(map[string]context.CancelFunc), stagingActive: make(map[string]int)}, nil
+	return &Service{store: config.Store, peers: config.Peers, authorizer: config.Authorizer, identity: config.Identity, dataDirectory: config.DataDirectory, publisher: config.Publisher, logger: config.Logger, httpClient: config.HTTPClient, peerScheme: peerScheme, peerClients: make(map[string]*http.Client), authNonces: make(map[string]time.Time), maxConcurrent: config.MaxConcurrent, chunkWorkers: config.ChunkWorkers, chunkSize: config.ChunkSize, now: config.Now, wake: make(chan struct{}, 1), active: make(map[string]context.CancelFunc), stagingActive: make(map[string]int)}, nil
 }
 
 func DetectCapabilities(dataDirectory string) Capabilities {
@@ -181,7 +190,7 @@ func (s *Service) Queue(ctx context.Context, request QueueRequest) (Transfer, er
 	if peer.MaximumChunkSize < chunkSize {
 		chunkSize = peer.MaximumChunkSize
 	}
-	t := Transfer{ID: uuid.NewString(), Direction: DirectionOutbound, DeviceID: request.DeviceID, DeviceName: peer.Name, RemoteAddress: peerAddress(peer), Filename: name, SourcePaths: append([]string(nil), request.Paths...), Status: StatusQueued, CreatedAt: now, UpdatedAt: now, Priority: now.UnixNano(), Approved: true, ConflictPolicy: policy, ChunkSize: chunkSize, Compression: peer.CompressionSupport, ProtocolVersion: ProtocolVersion}
+	t := Transfer{ID: uuid.NewString(), Direction: DirectionOutbound, DeviceID: request.DeviceID, DeviceName: peer.Name, RemoteAddress: s.peerAddress(peer), Filename: name, SourcePaths: append([]string(nil), request.Paths...), Status: StatusQueued, CreatedAt: now, UpdatedAt: now, Priority: now.UnixNano(), Approved: true, ConflictPolicy: policy, ChunkSize: chunkSize, Compression: peer.CompressionSupport, ProtocolVersion: ProtocolVersion}
 	if err := s.store.SaveTransfer(ctx, t); err != nil {
 		return Transfer{}, err
 	}
@@ -190,7 +199,7 @@ func (s *Service) Queue(ctx context.Context, request QueueRequest) (Transfer, er
 	return t, nil
 }
 
-func (s *Service) ReceiveOffer(ctx context.Context, offer Offer, remoteAddress string) (Transfer, error) {
+func (s *Service) ReceiveOffer(ctx context.Context, offer Offer, remoteAddress string, authentication PeerAuthentication) (Transfer, error) {
 	if _, err := uuid.Parse(offer.TransferID); err != nil {
 		return Transfer{}, fmt.Errorf("%w: invalid transfer ID", ErrInvalidRequest)
 	}
@@ -203,6 +212,23 @@ func (s *Service) ReceiveOffer(ctx context.Context, offer Offer, remoteAddress s
 	}
 	if !trusted {
 		return Transfer{}, ErrUntrustedDevice
+	}
+	if authentication.DeviceID != offer.DeviceID || !validProtocolTime(authentication.Timestamp, s.now().UTC()) || authentication.Nonce == "" {
+		return Transfer{}, fmt.Errorf("%w: malformed offer authentication", ErrUnauthorized)
+	}
+	sharedKey, err := s.authorizer.SharedKey(ctx, offer.DeviceID)
+	if err != nil {
+		return Transfer{}, fmt.Errorf("%w: pairing credential unavailable", ErrUnauthorized)
+	}
+	encodedOffer, err := json.Marshal(offer)
+	if err != nil {
+		return Transfer{}, err
+	}
+	if !validOfferSignature(sharedKey, authentication, http.MethodPost, "/v1/transfers/offers", encodedOffer) {
+		return Transfer{}, fmt.Errorf("%w: offer signature mismatch", ErrUnauthorized)
+	}
+	if !s.useAuthenticationNonce(authentication.Nonce, s.now().UTC()) {
+		return Transfer{}, fmt.Errorf("%w: replayed offer", ErrUnauthorized)
 	}
 	peer, found := s.peer(offer.DeviceID)
 	if !found || !peer.Online || !sameIP(peer.LocalIP, remoteAddress) {
@@ -403,7 +429,7 @@ func (s *Service) Cancel(ctx context.Context, id string) (Transfer, error) {
 	result, finishErr := s.finish(ctx, t, StatusCancelled, "", EventQueueUpdated)
 	if finishErr == nil && t.Direction == DirectionOutbound && t.SessionToken != "" && t.RemoteAddress != "" {
 		cancelContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_ = s.jsonRequest(cancelContext, http.MethodDelete, t.RemoteAddress+"/v1/transfers/"+t.ID, t.SessionToken, nil, nil)
+		_ = s.jsonRequest(cancelContext, http.MethodDelete, t.RemoteAddress+"/v1/transfers/"+t.ID, t.DeviceID, t.SessionToken, nil, nil)
 		cancel()
 	}
 	return result, finishErr
@@ -863,8 +889,67 @@ func generateToken() (string, error) {
 	}
 	return base64.RawURLEncoding.EncodeToString(contents), nil
 }
-func peerAddress(peer models.Device) string {
-	return "http://" + net.JoinHostPort(strings.TrimSpace(peer.LocalIP), fmt.Sprintf("%d", peer.Port))
+func (s *Service) peerAddress(peer models.Device) string {
+	return s.peerScheme + "://" + net.JoinHostPort(strings.TrimSpace(peer.LocalIP), fmt.Sprintf("%d", peer.Port))
+}
+
+func (s *Service) peerClient(ctx context.Context, deviceID string) (*http.Client, error) {
+	if s.httpClient != nil {
+		return s.httpClient, nil
+	}
+	s.mu.Lock()
+	if client := s.peerClients[deviceID]; client != nil {
+		s.mu.Unlock()
+		return client, nil
+	}
+	s.mu.Unlock()
+	pinnedKey, err := s.authorizer.PublicKey(ctx, deviceID)
+	if err != nil {
+		return nil, err
+	}
+	client := &http.Client{Timeout: 5 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error {
+		return errors.New("transfer protocol redirects are not allowed")
+	}, Transport: &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS13, InsecureSkipVerify: true, VerifyConnection: func(state tls.ConnectionState) error {
+		if len(state.PeerCertificates) != 1 {
+			return errors.New("peer did not present exactly one TLS certificate")
+		}
+		presented, ok := state.PeerCertificates[0].PublicKey.(ed25519.PublicKey)
+		if !ok || !presented.Equal(pinnedKey) {
+			return errors.New("peer TLS identity does not match the paired device")
+		}
+		return nil
+	}}}}
+	s.mu.Lock()
+	s.peerClients[deviceID] = client
+	s.mu.Unlock()
+	return client, nil
+}
+
+func validProtocolTime(value string, now time.Time) bool {
+	seconds, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return false
+	}
+	difference := now.Unix() - seconds
+	if difference < 0 {
+		difference = -difference
+	}
+	return difference <= int64((2 * time.Minute).Seconds())
+}
+
+func (s *Service) useAuthenticationNonce(nonce string, now time.Time) bool {
+	s.authMu.Lock()
+	defer s.authMu.Unlock()
+	for value, used := range s.authNonces {
+		if now.Sub(used) > 5*time.Minute {
+			delete(s.authNonces, value)
+		}
+	}
+	if _, exists := s.authNonces[nonce]; exists {
+		return false
+	}
+	s.authNonces[nonce] = now
+	return true
 }
 
 func sameIP(left, right string) bool {
