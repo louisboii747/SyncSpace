@@ -38,6 +38,18 @@ reproduction steps, impact, and any logs with personal paths removed.
 - Diagnostics bundles exclude database contents, private keys, pairing shared
   keys, and transferred file bodies.
 
+## Release integrity
+
+Official Linux release assets are published by the tag-triggered GitHub Actions
+workflow. Every DEB, RPM, and `SHA256SUMS` asset receives a GitHub
+build-provenance attestation, and the checksum manifest is generated and
+verified only after the four-package bundle has passed package inspection.
+
+Verify both the downloaded checksum and the GitHub attestation before
+installing an asset. The checksum protects file integrity; the attestation ties
+the digest to this repository, commit, and workflow. See
+[Linux packages](docs/linux-packages.md) for the exact commands.
+
 ## Known limitations
 
 - A malicious process already running as the same operating-system user can
@@ -50,8 +62,12 @@ reproduction steps, impact, and any logs with personal paths removed.
   guaranteed revocation notification to a peer that is offline.
 - The pairing UI supports code and fingerprint comparison, but not QR or a
   separate out-of-band channel.
-- This repository does not yet ship signed installers, sandbox entitlements,
-  hardened native clients, automatic updates, or mobile background services.
+- Linux packages are not served from a signed APT/DNF repository and do not
+  have detached OpenPGP signatures; distribution currently relies on GitHub
+  build attestations plus the release checksum manifest.
+- This repository does not yet ship a signed Windows installer, sandbox
+  entitlements, hardened native clients, automatic updates, or mobile
+  background services.
 - Availability attacks on the local network, including mDNS flooding and
   connection exhaustion below application limits, are not completely solved.
 

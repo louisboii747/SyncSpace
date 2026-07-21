@@ -4,6 +4,12 @@
 
 ### Added
 
+- Reproducible Linux DEB and RPM packaging for x86-64 and ARM64, with a
+  per-user systemd service, desktop launcher, application entry, and icon.
+- Tag-driven GitHub Releases with package inspection, aggregate SHA-256
+  checksums, and signed GitHub build-provenance attestations for every asset.
+- Linux operator and maintainer guides covering install, explicit service
+  enablement, configuration, logs, upgrades, provenance checks, and removal.
 - Persistent Ed25519 device identities with fingerprints and Windows DPAPI key
   protection.
 - Signed X25519/HKDF pairing with matching six-digit verification, proof of key
@@ -29,6 +35,9 @@
 
 ### Changed
 
+- Release packages remain inert after installation: SyncSpace starts only when
+  the user launches it or explicitly enables the user service, and package
+  upgrades preserve identity, trust, settings, history, and received files.
 - Management/UI and peer-protocol traffic now use separate listeners.
 - mDNS advertises the encrypted peer port and identity fingerprint hint.
 - The local lab uses independent real identities and pinned encrypted transfer

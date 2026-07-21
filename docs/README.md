@@ -2,6 +2,7 @@
 
 Start here:
 
+- [Install or upgrade the Linux packages](linux-packages.md)
 - [Development and command reference](development.md)
 - [Two-device local lab](LOCAL_SIMULATION.md)
 - [Testing and acceptance](TESTING.md)
@@ -17,6 +18,8 @@ Protocol and implementation references:
 - [SQLite schema](database.md)
 - [Transfer UI contract](transfer-ui.md)
 - [Diagnostics](DIAGNOSTICS.md)
+- [Maintainer release guide](releasing.md)
 
-The native-platform folders are design placeholders until buildable clients
-exist. The runnable product is the Go engine with its embedded React interface.
+The DEB and RPM packages ship the Go engine with its embedded React interface
+as a per-user Linux service. The native-platform folders remain design
+placeholders until buildable native clients exist.

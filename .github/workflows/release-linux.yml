@@ -1,0 +1,426 @@
+name: Linux release packages
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to build without publishing, for example 1.2.3 or 1.2.3-rc.1
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  metadata:
+    name: Validate release metadata
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      source_date_epoch: ${{ steps.release.outputs.source_date_epoch }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate tag and derive version
+        id: release
+        shell: bash
+        env:
+          DISPATCH_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            if [[ "$GITHUB_REF_TYPE" != "tag" ]]; then
+              echo "A release push must be a tag." >&2
+              exit 1
+            fi
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$DISPATCH_VERSION"
+            version="${version#v}"
+          fi
+
+          semver='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$'
+          if [[ ! "$version" =~ $semver ]]; then
+            echo "Version must use SemVer form X.Y.Z or X.Y.Z-prerelease; received: $version" >&2
+            exit 1
+          fi
+          core_version="${version%%-*}"
+          IFS=. read -r major minor patch <<< "$core_version"
+          for number in "$major" "$minor" "$patch"; do
+            if [[ "$number" =~ ^0[0-9]+$ ]]; then
+              echo "SemVer numeric components cannot contain leading zeroes: $version" >&2
+              exit 1
+            fi
+          done
+          if [[ "$version" == *-* ]]; then
+            prerelease_version="${version#*-}"
+            IFS=. read -ra identifiers <<< "$prerelease_version"
+            for identifier in "${identifiers[@]}"; do
+              if [[ "$identifier" =~ ^0[0-9]+$ ]]; then
+                echo "Numeric prerelease identifiers cannot contain leading zeroes: $version" >&2
+                exit 1
+              fi
+            done
+          fi
+          if [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF_NAME" != "v$version" ]]; then
+            echo "Release tags must be exactly vX.Y.Z or vX.Y.Z-prerelease; received: $GITHUB_REF_NAME" >&2
+            exit 1
+          fi
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            if ! git show-ref --verify --quiet refs/remotes/origin/main; then
+              echo "The origin/main release boundary was not fetched." >&2
+              exit 1
+            fi
+            if ! git merge-base --is-ancestor HEAD refs/remotes/origin/main; then
+              echo "Release tags must point to a commit contained in origin/main." >&2
+              exit 1
+            fi
+          fi
+
+          source_date_epoch="$(git show -s --format=%ct HEAD)"
+          if [[ ! "$source_date_epoch" =~ ^[0-9]+$ ]]; then
+            echo "Could not derive SOURCE_DATE_EPOCH from the release commit." >&2
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "source_date_epoch=$source_date_epoch" >> "$GITHUB_OUTPUT"
+          if [[ "$version" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Building SyncSpace $version from commit $GITHUB_SHA"
+
+  validate:
+    name: Test release source
+    needs: metadata
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Test and build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run check
+
+      - name: Test and vet backend
+        run: |
+          go test ./...
+          go vet ./...
+
+      - name: Verify the real transfer path
+        run: go run ./backend/cmd/syncspace dev verify
+
+  package:
+    name: Package Linux ${{ matrix.goarch }}
+    needs:
+      - metadata
+      - validate
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goarch: amd64
+            runner: ubuntu-24.04
+          - goarch: arm64
+            runner: ubuntu-24.04-arm
+
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Install package inspection tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes appstream binutils cpio curl desktop-file-utils file jq rpm shellcheck
+
+      - name: Install locked frontend dependencies
+        working-directory: frontend
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Build package set twice
+        env:
+          SOURCE_DATE_EPOCH: ${{ needs.metadata.outputs.source_date_epoch }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          bash packaging/linux/build-packages.sh \
+            --version "$VERSION" \
+            --arch "${{ matrix.goarch }}" \
+            --format all \
+            --skip-deps \
+            --output dist/first
+          bash packaging/linux/build-packages.sh \
+            --version "$VERSION" \
+            --arch "${{ matrix.goarch }}" \
+            --format all \
+            --skip-deps \
+            --output dist/second
+
+      - name: Verify deterministic packages
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          mapfile -t debs < <(find dist/first -maxdepth 1 -type f -name '*.deb' -printf '%f\n')
+          mapfile -t rpms < <(find dist/first -maxdepth 1 -type f -name '*.rpm' -printf '%f\n')
+          if [[ "${#debs[@]}" -ne 1 || "${#rpms[@]}" -ne 1 ]]; then
+            echo "Each architecture build must produce exactly one DEB and one RPM." >&2
+            exit 1
+          fi
+          deb="${debs[0]}"
+          rpm="${rpms[0]}"
+          cmp "dist/first/$deb" "dist/second/$deb"
+          cmp "dist/first/$rpm" "dist/second/$rpm"
+          bash packaging/linux/verify-package.sh "dist/first/$deb"
+          bash packaging/linux/verify-package.sh "dist/first/$rpm"
+
+      - name: Run installed-binary smoke test
+        shell: bash
+        env:
+          ARCH: ${{ matrix.goarch }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          mapfile -t packages < <(find dist/first -maxdepth 1 -type f -name '*.deb')
+          if [[ "${#packages[@]}" -ne 1 ]]; then
+            echo "Expected exactly one $ARCH Debian package." >&2
+            exit 1
+          fi
+          package="${packages[0]}"
+          root="$RUNNER_TEMP/syncspace-package-root"
+          data="$RUNNER_TEMP/syncspace-smoke-data"
+          log="$RUNNER_TEMP/syncspace-smoke.log"
+          dpkg-deb --extract "$package" "$root"
+
+          SYNCSPACE_HOST=127.0.0.1 \
+          SYNCSPACE_PORT=18084 \
+          SYNCSPACE_PEER_HOST=127.0.0.1 \
+          SYNCSPACE_PEER_PORT=18085 \
+          SYNCSPACE_DATA_DIR="$data" \
+            "$root/usr/libexec/syncspace/syncspace-server" >"$log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true' EXIT
+
+          ready=false
+          for _ in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:18084/api/v1/health >/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [[ "$ready" != true ]]; then
+            cat "$log"
+            exit 1
+          fi
+
+          curl --fail --silent http://127.0.0.1:18084/api/v1/device/self \
+            | jq --exit-status --arg version "$VERSION" '.appVersion == $version' >/dev/null
+
+      - name: Upload architecture packages
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux-packages-${{ matrix.goarch }}
+          path: |
+            dist/first/*.deb
+            dist/first/*.rpm
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+  bundle:
+    name: Verify Linux release bundle
+    needs:
+      - metadata
+      - package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out verification scripts
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install package inspection tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes appstream binutils cpio desktop-file-utils rpm shellcheck
+
+      - name: Download all architecture packages
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: linux-packages-*
+          path: dist
+          merge-multiple: true
+
+      - name: Verify complete bundle and write checksums
+        shell: bash
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          mapfile -t actual < <(find dist -maxdepth 1 -type f \( -name '*.deb' -o -name '*.rpm' \) -printf '%f\n' | sort)
+          if [[ "${#actual[@]}" -ne 4 ]]; then
+            printf 'Expected four packages, found %s:\n%s\n' "${#actual[@]}" "${actual[*]}" >&2
+            exit 1
+          fi
+
+          for package in "${actual[@]}"; do
+            test -f "dist/$package"
+            bash packaging/linux/verify-package.sh "dist/$package"
+          done
+
+          if [[ "${actual[*]}" != *"amd64.deb"* || "${actual[*]}" != *"arm64.deb"* || \
+                "${actual[*]}" != *"x86_64.rpm"* || "${actual[*]}" != *"aarch64.rpm"* ]]; then
+            echo "The bundle does not contain both native architecture names for DEB and RPM." >&2
+            exit 1
+          fi
+
+          (
+            cd dist
+            sha256sum "${actual[@]}" | sort --key=2 > SHA256SUMS
+            sha256sum --check SHA256SUMS
+          )
+
+      - name: Upload verified Linux release bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-assets-linux-${{ needs.metadata.outputs.version }}
+          path: |
+            dist/*.deb
+            dist/*.rpm
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
+  attest:
+    name: Attest Linux release assets
+    if: github.event_name == 'push'
+    needs:
+      - metadata
+      - bundle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Download verified release assets
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-assets-linux-${{ needs.metadata.outputs.version }}
+          path: dist
+
+      - name: Create GitHub build-provenance attestations
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
+        with:
+          subject-path: |
+            dist/*.deb
+            dist/*.rpm
+            dist/SHA256SUMS
+          create-storage-record: false
+
+  release:
+    name: Publish GitHub Release
+    if: github.event_name == 'push'
+    needs:
+      - metadata
+      - bundle
+      - attest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: linux-release
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download verified release assets
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-assets-linux-${{ needs.metadata.outputs.version }}
+          path: dist
+
+      - name: Recheck release checksums
+        working-directory: dist
+        run: sha256sum --check SHA256SUMS
+
+      - name: Publish verified asset set
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists; refusing to replace published assets." >&2
+            exit 1
+          fi
+
+          release_flags=()
+          if [[ "${{ needs.metadata.outputs.prerelease }}" == "true" ]]; then
+            release_flags+=(--prerelease --latest=false)
+          fi
+
+          gh release create "$GITHUB_REF_NAME" \
+            dist/*.deb \
+            dist/*.rpm \
+            dist/SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "SyncSpace $VERSION" \
+            --notes "Linux packages are available for Debian, Ubuntu, Fedora, RHEL-compatible distributions and related systems on amd64/x86_64 and arm64/aarch64. Verify SHA256SUMS before installing; GitHub build-provenance attestations are recorded for every asset." \
+            --generate-notes \
+            "${release_flags[@]}"
+
+# Windows extension point: add a sibling package-windows job and a
+# release-assets-windows-VERSION artifact. Then make bundle/release depend on it
+# and download that artifact beside the Linux bundle. Linux packaging and its
+# verification remain isolated, so Windows can be added without weakening it.

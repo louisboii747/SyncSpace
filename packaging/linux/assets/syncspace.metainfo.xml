@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.louisboii747.SyncSpace</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>Apache-2.0</project_license>
+  <name>SyncSpace</name>
+  <summary>Send files directly to trusted devices on your local network</summary>
+  <description>
+    <p>
+      SyncSpace is a local-first file transfer application. It discovers nearby
+      devices, keeps discovery separate from trust, and asks you to compare a
+      pairing code before a device becomes trusted.
+    </p>
+    <p>
+      Transfers use an encrypted peer connection. The management interface is
+      available only on the computer running SyncSpace, and files are not
+      uploaded to a cloud relay.
+    </p>
+  </description>
+  <launchable type="desktop-id">syncspace.desktop</launchable>
+  <provides>
+    <binary>syncspace</binary>
+  </provides>
+  <url type="homepage">https://github.com/louisboii747/syncspace</url>
+  <url type="bugtracker">https://github.com/louisboii747/syncspace/issues</url>
+  <releases>
+    <release version="@VERSION@" date="@RELEASE_DATE@"/>
+  </releases>
+  <content_rating type="oars-1.1"/>
+</component>

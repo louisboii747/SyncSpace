@@ -17,13 +17,115 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  go:
-    name: Go format, test, vet and build
+  quality:
+    name: Test, vet and build
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Set up Go
-        uses:
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Check Go formatting
+        shell: bash
+        run: |
+          unformatted="$(gofmt -l backend)"
+          if [[ -n "$unformatted" ]]; then
+            printf 'These Go files need gofmt:\n%s\n' "$unformatted"
+            exit 1
+          fi
+
+      - name: Test frontend and build embedded assets
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run check
+
+      - name: Test backend
+        run: go test ./...
+
+      - name: Vet backend
+        run: go vet ./...
+
+      - name: Build commands
+        run: go build ./backend/cmd/server ./backend/cmd/syncspace
+
+  transfer-smoke:
+    name: Two-device transfer smoke test
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Pair isolated devices and transfer real bytes
+        run: go run ./backend/cmd/syncspace dev verify
+
+  linux-package-smoke:
+    name: Linux package smoke test
+    needs: quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install package inspection tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes appstream binutils cpio desktop-file-utils file rpm shellcheck
+
+      - name: Build Debian and RPM packages
+        run: |
+          export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+          bash packaging/linux/build-packages.sh \
+            --version 0.0.0 \
+            --arch amd64 \
+            --format all \
+            --output dist
+
+      - name: Inspect package metadata and payloads
+        run: |
+          bash packaging/linux/verify-package.sh dist/syncspace_0.0.0_amd64.deb
+          bash packaging/linux/verify-package.sh dist/syncspace-0.0.0-1.x86_64.rpm

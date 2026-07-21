@@ -54,7 +54,7 @@ func TestSimulatorExposesEveryDevelopmentScenario(t *testing.T) {
 
 func TestSimulatorFaultsExerciseTheWireProtocol(t *testing.T) {
 	tests := []struct {
-		scenario                                           Scenario
+		scenario                                             Scenario
 		offerStatus, firstChunk, secondChunk, completeStatus int
 	}{
 		{ScenarioOnline, http.StatusCreated, http.StatusNoContent, http.StatusNoContent, http.StatusOK},

@@ -1,0 +1,14 @@
+Package: syncspace
+Version: @DEB_VERSION@
+Section: net
+Priority: optional
+Architecture: @DEB_ARCH@
+Installed-Size: @INSTALLED_SIZE@
+Maintainer: SyncSpace maintainers <noreply@github.com>
+Homepage: https://github.com/louisboii747/syncspace
+Depends: systemd, xdg-utils
+Description: private local-network file transfer
+ SyncSpace sends files directly between explicitly paired devices on the same
+ local network. It includes a loopback-only management interface, encrypted
+ peer transport, persistent device identity, transfer history, and a per-user
+ systemd service. It does not require a cloud relay.

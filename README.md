@@ -8,11 +8,38 @@ fallback in the current product.
 
 The runnable product today is a Go engine with a responsive React control
 surface embedded into the same executable. It provides Home, Transfers,
-Devices, History, Settings, and Diagnostics views.
+Devices, History, Settings, and Diagnostics views. Linux users can install that
+complete runtime from a GitHub Release without installing Go or Node.js.
 
-## Start SyncSpace
+## Install a Linux release
 
-Requirements: Go 1.26.4 or newer, Node.js 22 or newer, and npm.
+GitHub Releases provide native DEB and RPM packages for x86-64 and 64-bit ARM.
+Download the package for the computer together with `SHA256SUMS`, verify its
+checksum and GitHub build attestation, then install it with `apt` or `dnf`.
+
+```sh
+# Debian or Ubuntu, x86-64 example
+sha256sum --check --ignore-missing SHA256SUMS
+sudo apt install ./syncspace_VERSION_amd64.deb
+
+# Fedora or RHEL family, x86-64 example
+sha256sum --check --ignore-missing SHA256SUMS
+sudo dnf install ./syncspace-VERSION-1.x86_64.rpm
+```
+
+Open **SyncSpace** from the application menu or run `syncspace`. The package
+starts a systemd user service, never a root daemon, and still requires the
+privacy policy to be accepted before LAN activity begins. It is not silently
+enabled during installation.
+
+See [Install SyncSpace on Linux](docs/linux-packages.md) for architecture
+selection, provenance verification, configuration, logs, upgrades, service
+startup, and uninstall instructions. GitHub Releases is not an APT/DNF
+repository, so upgrades are downloaded and verified explicitly.
+
+## Start SyncSpace from source
+
+Source-build requirements: Go 1.26.4 or newer, Node.js 22 or newer, and npm.
 
 From the repository root, build the frontend once and start the server:
 
@@ -166,7 +193,7 @@ The public metadata and stable device ID live in `identity.json`; private key
 material lives separately in `identity.key`. With the default data root these
 files are under `%APPDATA%\SyncSpace` on Windows,
 `~/Library/Application Support/SyncSpace` on macOS, and
-`${XDG_CONFIG_HOME:-~/.config}/SyncSpace` on Linux. `SYNCSPACE_DATA_DIR` replaces
+`${XDG_CONFIG_HOME:-$HOME/.config}/SyncSpace` on Linux. `SYNCSPACE_DATA_DIR` replaces
 that root when set. Windows protects `identity.key` with user-scoped DPAPI;
 other current builds restrict it to mode `0600`.
 
@@ -202,7 +229,10 @@ go run ./backend/cmd/syncspace dev verify
 ```
 
 CI repeats the backend tests/vet/build, frontend tests/type-check/build, and the
-two-process encrypted transfer smoke test.
+two-process encrypted transfer smoke test. Tagged release CI additionally
+builds and inspects both DEB/RPM architectures, verifies the embedded version,
+publishes `SHA256SUMS`, records GitHub build-provenance attestations, and attaches
+the verified artifacts to the matching GitHub Release.
 
 ## Current scope
 
@@ -229,12 +259,15 @@ Current transfer limits are deliberately visible:
 - the browser review is based on the selected file list and cannot predict
   destination conflicts before the receiver checks its filesystem.
 
-Not yet implemented: packaged native desktop shells, installers/updaters/tray
-integration, buildable Android/iOS/iPadOS/macOS clients, native share sheets or
-file providers, QR/manual-IP pairing, clipboard/notes sync, camera workflows,
-accessibility certification, relay/remote transfer, or the later collaboration
-features in the product brief. The platform folders document intended native
-directions; they are not currently runnable applications.
+The Linux DEB/RPM distribution is the embedded web product running as a per-user
+systemd service; it is not a native shell or tray application. Not yet
+implemented: a Windows installer/updater, Linux repository-based automatic
+updates, packaged native desktop shells, tray integration, buildable
+Android/iOS/iPadOS/macOS clients, native share sheets or file providers,
+QR/manual-IP pairing, clipboard/notes sync, camera workflows, accessibility
+certification, relay/remote transfer, or the later collaboration features in
+the product brief. The platform folders document intended native directions;
+they are not currently runnable applications.
 
 The detailed command reference is in [Development](docs/development.md), the
 lab walkthrough is in [Local simulation](docs/LOCAL_SIMULATION.md), and the

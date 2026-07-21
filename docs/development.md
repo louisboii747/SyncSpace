@@ -159,7 +159,7 @@ device identity. Use a clean directory for each installation.
 
 The default data root comes from Go's `os.UserConfigDir`: normally
 `%APPDATA%\SyncSpace` on Windows, `~/Library/Application Support/SyncSpace` on
-macOS, and `${XDG_CONFIG_HOME:-~/.config}/SyncSpace` on Linux. A new profile's
+macOS, and `${XDG_CONFIG_HOME:-$HOME/.config}/SyncSpace` on Linux. A new profile's
 default receive folder is separate: `<home>/Downloads/SyncSpace`. It is created
 when an incoming transfer is accepted; migrated profiles keep their existing
 chosen path. Both roots can be changed independently through
@@ -173,7 +173,21 @@ go build -o .tmp/syncspace-cli.exe ./backend/cmd/syncspace
 ```
 
 On macOS/Linux omit the `.exe` suffix. These commands build the current
-headless/embedded-web product; they do not create an installer or native shell.
+headless/embedded-web product. On Linux, the release packaging scripts wrap the
+server and embedded interface in installable DEB/RPM artifacts:
+
+```sh
+packaging/linux/build-packages.sh \
+  --version 1.4.0 \
+  --arch amd64 \
+  --format all \
+  --output dist
+```
+
+Run `packaging/linux/verify-package.sh <artifact>` before installing any local
+package. See [Linux packages](linux-packages.md) and
+[Releasing](releasing.md). These packages provide a browser-based per-user
+Linux service, not a native desktop shell.
 
 ## Engineering invariants
 

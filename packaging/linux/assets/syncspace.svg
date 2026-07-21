@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-labelledby="title description">
+  <title id="title">SyncSpace</title>
+  <desc id="description">Two simple arrows moving between two devices.</desc>
+  <rect width="128" height="128" rx="28" fill="#252723"/>
+  <rect x="19" y="31" width="31" height="66" rx="8" fill="#EEE9DF"/>
+  <rect x="78" y="31" width="31" height="66" rx="8" fill="#EEE9DF"/>
+  <circle cx="34.5" cy="86" r="3" fill="#697A6A"/>
+  <circle cx="93.5" cy="86" r="3" fill="#697A6A"/>
+  <path d="M43 50h37l-9-9 7-7 21 21-21 21-7-7 9-9H43z" fill="#C4765B"/>
+  <path d="M85 78H48l9 9-7 7-21-21 21-21 7 7-9 9h37z" fill="#697A6A"/>
+</svg>

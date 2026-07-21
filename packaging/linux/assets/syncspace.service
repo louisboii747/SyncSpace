@@ -1,0 +1,49 @@
+[Unit]
+Description=SyncSpace local file transfer
+Documentation=https://github.com/louisboii747/syncspace
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/syncspace/syncspace-server
+
+# The management UI is intentionally loopback-only. The Go server also rejects
+# any non-loopback SYNCSPACE_HOST value, including values supplied by the user
+# environment file below.
+Environment=SYNCSPACE_HOST=127.0.0.1
+Environment=SYNCSPACE_PORT=8384
+Environment=SYNCSPACE_PEER_HOST=0.0.0.0
+Environment=SYNCSPACE_PEER_PORT=8385
+EnvironmentFile=-%E/syncspace/service.env
+
+Restart=on-failure
+RestartSec=3s
+TimeoutStopSec=15s
+KillSignal=SIGTERM
+UMask=0077
+
+# SyncSpace must be able to read user-selected files and write the chosen
+# receive folder, including removable-media mount points. ProtectSystem=full
+# keeps /usr, /boot, and /etc read-only without making those data paths read-only.
+# The remaining controls prevent privilege gain and access to host internals.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=full
+ProtectControlGroups=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectClock=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=default.target
