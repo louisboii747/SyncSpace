@@ -94,6 +94,7 @@ func NewService(config ServiceConfig) (*Service, error) {
 		self: models.Device{
 			ID:                       config.Identity.ID,
 			Name:                     config.Identity.Name,
+			Hostname:                 config.Identity.Hostname,
 			Type:                     config.Identity.Type,
 			Platform:                 config.Identity.Platform,
 			Port:                     config.Port,
@@ -165,6 +166,22 @@ func (s *Service) Refresh() {
 	}
 }
 
+// SetDisplayName updates the user-facing name without changing the stable
+// device ID or cryptographic identity. Refresh tears down the current mDNS
+// advertisement so nearby clients receive the new value immediately.
+func (s *Service) SetDisplayName(name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" || len(name) > 128 {
+		return errors.New("device name must contain 1 to 128 characters")
+	}
+	s.selfMu.Lock()
+	s.self.Name = name
+	s.self.LastSeen = time.Now().UTC()
+	s.selfMu.Unlock()
+	s.Refresh()
+	return nil
+}
+
 func (s *Service) safeRunSession(ctx context.Context) (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -190,6 +207,7 @@ func (s *Service) runSession(ctx context.Context) error {
 		Text: []string{
 			"id=" + local.ID,
 			"name=" + local.Name,
+			"hostname=" + local.Hostname,
 			"type=" + local.Type,
 			"platform=" + local.Platform,
 			"version=" + local.AppVersion,
@@ -318,9 +336,7 @@ func parseAdvertisement(advertisement Advertisement) (models.Device, error) {
 			values[key] = value
 		}
 	}
-	if values["protocol"] != "1" {
-		return models.Device{}, errors.New("unsupported discovery protocol")
-	}
+	compatibleProtocol := values["protocol"] == "1"
 	ip := bestAddress(advertisement.IPv4, advertisement.IPv6)
 	if ip == nil {
 		return models.Device{}, errors.New("advertisement has no usable local address")
@@ -328,11 +344,15 @@ func parseAdvertisement(advertisement Advertisement) (models.Device, error) {
 	device := models.Device{
 		ID:         values["id"],
 		Name:       values["name"],
+		Hostname:   strings.TrimSuffix(values["hostname"], "."),
 		Type:       values["type"],
 		Platform:   values["platform"],
 		LocalIP:    ip.String(),
 		Port:       advertisement.Port,
 		AppVersion: values["version"],
+	}
+	if device.Hostname == "" {
+		device.Hostname = strings.TrimSuffix(advertisement.Hostname, ".")
 	}
 	device.TransferCapability, _ = strconv.ParseBool(values["transfer"])
 	device.SupportedProtocolVersion, _ = strconv.Atoi(values["transfer_protocol"])
@@ -341,6 +361,15 @@ func parseAdvertisement(advertisement Advertisement) (models.Device, error) {
 	device.AvailableStorage, _ = strconv.ParseInt(values["available_storage"], 10, 64)
 	device.IdentityHint = values["identity_hint"]
 	device.PairingAvailable, _ = strconv.ParseBool(values["pairing"])
+	if !compatibleProtocol {
+		// Keep older or newer peers visible so the UI can explain that an update
+		// is needed. They are never offered as pairing or transfer destinations.
+		device.TransferCapability = false
+		device.SupportedProtocolVersion = 0
+		device.MaximumChunkSize = 0
+		device.CompressionSupport = false
+		device.PairingAvailable = false
+	}
 	if err := validateDiscoveredDevice(device); err != nil {
 		return models.Device{}, err
 	}

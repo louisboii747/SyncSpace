@@ -24,8 +24,11 @@ Open:
 - Device B: <http://127.0.0.1:8385>
 
 The command creates independent cryptographic identities and data roots, starts
-peer TLS on `18384`/`18385`, compares the derived pairing code on both services,
-confirms both sides, and persists mutual trust. It then waits until `Ctrl+C`.
+peer TLS on `18384`/`18385`, accepts privacy policy `2026-07-1` for these two
+temporary lab profiles through the real local API, compares the derived pairing
+code on both services, confirms both sides, and persists mutual trust. It then
+waits until `Ctrl+C`. Normal server startup never accepts the policy
+automatically.
 
 From another terminal, exercise a real transfer:
 
@@ -43,9 +46,10 @@ and checks SHA-256 and persistent history.
 go run ./backend/cmd/syncspace dev verify
 ```
 
-This performs the build, two-process startup, health checks, embedded-frontend
-checks, signed pairing, pinned-TLS transfer, destination checksum, and history
-checks, then stops both processes. It is also the CI smoke test.
+This performs the build, two-process startup, policy-endpoint readiness,
+lab-profile acceptance, health and embedded-frontend checks, signed pairing,
+pinned-TLS transfer, destination checksum, and history checks, then stops both
+processes. It is also the CI smoke test.
 
 ## Wrapper scripts
 

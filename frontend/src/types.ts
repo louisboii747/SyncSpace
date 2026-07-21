@@ -8,6 +8,7 @@ export type ConflictPolicy = 'prompt' | 'overwrite' | 'rename'
 export interface Device {
   deviceId: string
   deviceName: string
+	hostname: string
   deviceType: string
   platform: string
   localIp: string
@@ -60,11 +61,32 @@ export interface PairingDecision { request: PairingRequest; trustedDevice?: Trus
 
 export interface Settings {
 	schemaVersion: number
+	deviceName: string
+	discoverable: boolean
+	incomingTransfersEnabled: boolean
 	appearance: 'system' | 'light' | 'dark'
 	reducedMotion: boolean
 	defaultDownloadDirectory: string
 	conflictPolicy: ConflictPolicy
 	notificationsEnabled: boolean
+	privacyPolicyVersion: string
+	privacyAcceptedAt?: string
+}
+
+export interface PrivacyPolicySection {
+	title: string
+	paragraphs: string[]
+	items?: string[]
+}
+
+export interface PrivacyPolicy {
+	version: string
+	title?: string
+	summary?: string
+	effectiveDate?: string
+	accepted: boolean
+	acceptedAt?: string
+	sections?: PrivacyPolicySection[]
 }
 
 export interface TransferFile {
@@ -82,6 +104,8 @@ export interface Transfer {
   direction: 'outbound' | 'inbound'
   deviceId: string
   deviceName?: string
+	deviceHostname?: string
+	devicePlatform?: string
   filename: string
   path?: string
   files?: TransferFile[]

@@ -75,6 +75,8 @@ type Transfer struct {
 	Direction        Direction      `json:"direction"`
 	DeviceID         string         `json:"deviceId"`
 	DeviceName       string         `json:"deviceName,omitempty"`
+	DeviceHostname   string         `json:"deviceHostname,omitempty"`
+	DevicePlatform   string         `json:"devicePlatform,omitempty"`
 	RemoteAddress    string         `json:"remoteAddress,omitempty"`
 	Filename         string         `json:"filename"`
 	Path             string         `json:"path"`
@@ -140,6 +142,8 @@ type Offer struct {
 	TransferID      string `json:"transferId"`
 	DeviceID        string `json:"deviceId"`
 	DeviceName      string `json:"deviceName"`
+	DeviceHostname  string `json:"deviceHostname,omitempty"`
+	DevicePlatform  string `json:"devicePlatform,omitempty"`
 	SessionToken    string `json:"sessionToken"`
 	Filename        string `json:"filename"`
 	Size            int64  `json:"size"`

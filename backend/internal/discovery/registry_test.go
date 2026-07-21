@@ -89,13 +89,35 @@ func TestRegistryRejectsConflictingIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	device := testDevice()
+	device.IdentityHint = "AAAA:BBBB:CCCC:DDDD"
 	if err := registry.Upsert(device, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	device.Name = "Cloned Identity"
+	device.IdentityHint = "EEEE:FFFF:0000:1111"
 	if err := registry.Upsert(device, time.Now()); !errors.Is(err, ErrDuplicateIdentity) {
 		t.Fatalf("expected duplicate identity error, got %v", err)
 	}
+}
+
+func TestRegistryAllowsFriendlyNameChangeForPinnedIdentity(t *testing.T) {
+	publisher := &recordingPublisher{}
+	registry, err := NewRegistry(RegistryConfig{SelfID: uuid.NewString(), OfflineAfter: time.Second, RemoveAfter: 2 * time.Second, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Publisher: publisher})
+	if err != nil {
+		t.Fatal(err)
+	}
+	device := testDevice()
+	device.IdentityHint = "AAAA:BBBB:CCCC:DDDD"
+	if err := registry.Upsert(device, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	device.Name = "A friendlier name"
+	if err := registry.Upsert(device, time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if got := registry.List(); len(got) != 1 || got[0].Name != device.Name {
+		t.Fatalf("name update was not applied: %#v", got)
+	}
+	assertEventTypes(t, publisher.types(), models.EventDeviceDiscovered, models.EventDeviceUpdated)
 }
 
 func testDevice() models.Device {

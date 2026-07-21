@@ -64,6 +64,7 @@ type pairingSession struct {
 
 type Service struct {
 	mu              sync.Mutex
+	identityMu      sync.RWMutex
 	sessions        map[string]*pairingSession
 	pendingByDevice map[string]string
 	recentBegins    map[string]time.Time
@@ -76,6 +77,24 @@ type Service struct {
 	logger          *slog.Logger
 	requestTTL      time.Duration
 	now             func() time.Time
+}
+
+// SetDisplayName updates the friendly name used in future authenticated
+// pairing messages. The signing key and stable identity remain unchanged.
+func (s *Service) SetDisplayName(name string) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return
+	}
+	s.identityMu.Lock()
+	s.identity.Name = name
+	s.identityMu.Unlock()
+}
+
+func (s *Service) identitySnapshot() services.Identity {
+	s.identityMu.RLock()
+	defer s.identityMu.RUnlock()
+	return s.identity
 }
 
 func NewService(config ServiceConfig) (*Service, error) {
@@ -239,8 +258,9 @@ func (s *Service) RequestPairing(ctx context.Context, deviceID string) (Request,
 	if err != nil {
 		return Request{}, err
 	}
-	begin := BeginRequest{ProtocolVersion: ProtocolVersion, RequestID: uuid.NewString(), DeviceID: s.identity.ID, DeviceName: s.identity.Name, Platform: s.identity.Platform, PublicKey: s.identity.PublicKey, EphemeralKey: ephemeralPublic, Timestamp: fmt.Sprint(now.Unix()), Nonce: uuid.NewString()}
-	signRequest(&begin, s.identity.PrivateKey)
+	identity := s.identitySnapshot()
+	begin := BeginRequest{ProtocolVersion: ProtocolVersion, RequestID: uuid.NewString(), DeviceID: identity.ID, DeviceName: identity.Name, Platform: identity.Platform, PublicKey: identity.PublicKey, EphemeralKey: ephemeralPublic, Timestamp: fmt.Sprint(now.Unix()), Nonce: uuid.NewString()}
+	signRequest(&begin, identity.PrivateKey)
 	response, err := s.transport.Begin(ctx, peer, begin)
 	if err != nil {
 		return Request{}, fmt.Errorf("contact pairing peer: %w", err)
@@ -318,8 +338,9 @@ func (s *Service) ReceiveBegin(ctx context.Context, begin BeginRequest, remoteHo
 	if err != nil {
 		return BeginResponse{}, err
 	}
-	response := BeginResponse{ProtocolVersion: ProtocolVersion, RequestID: begin.RequestID, DeviceID: s.identity.ID, DeviceName: s.identity.Name, Platform: s.identity.Platform, PublicKey: s.identity.PublicKey, EphemeralKey: ephemeralPublic, Timestamp: fmt.Sprint(now.Unix()), Nonce: uuid.NewString()}
-	signResponse(&response, s.identity.PrivateKey)
+	identity := s.identitySnapshot()
+	response := BeginResponse{ProtocolVersion: ProtocolVersion, RequestID: begin.RequestID, DeviceID: identity.ID, DeviceName: identity.Name, Platform: identity.Platform, PublicKey: identity.PublicKey, EphemeralKey: ephemeralPublic, Timestamp: fmt.Sprint(now.Unix()), Nonce: uuid.NewString()}
+	signResponse(&response, identity.PrivateKey)
 	secret, code, err := derivePairing(ephemeral, begin.EphemeralKey, begin, response)
 	if err != nil {
 		return BeginResponse{}, err
@@ -365,7 +386,7 @@ func (s *Service) Accept(ctx context.Context, requestID string) (Decision, error
 		s.publish(Event{Type: EventPairingRequested, Request: &request, Timestamp: s.now().UTC()})
 		return Decision{Request: request}, nil
 	}
-	peerDecision, err := s.transport.Proof(ctx, peer, newProof(s.identity.ID, requestID, "confirm", secret, s.now().UTC()))
+	peerDecision, err := s.transport.Proof(ctx, peer, newProof(s.identitySnapshot().ID, requestID, "confirm", secret, s.now().UTC()))
 	if err != nil {
 		return Decision{Request: request}, fmt.Errorf("confirm pairing with peer: %w", err)
 	}
@@ -396,7 +417,7 @@ func (s *Service) Refresh(ctx context.Context, requestID string) (Decision, erro
 	}
 	peer, secret := session.peer, append([]byte(nil), session.secret...)
 	s.mu.Unlock()
-	peerDecision, err := s.transport.Proof(ctx, peer, newProof(s.identity.ID, requestID, "status", secret, s.now().UTC()))
+	peerDecision, err := s.transport.Proof(ctx, peer, newProof(s.identitySnapshot().ID, requestID, "status", secret, s.now().UTC()))
 	if err != nil {
 		return Decision{}, err
 	}
@@ -460,7 +481,7 @@ func (s *Service) Reject(ctx context.Context, requestID string) (Request, error)
 	request, peer, secret := session.request, session.peer, append([]byte(nil), session.secret...)
 	s.mu.Unlock()
 	if request.Direction == DirectionOutgoing {
-		_, _ = s.transport.Proof(ctx, peer, newProof(s.identity.ID, requestID, "reject", secret, s.now().UTC()))
+		_, _ = s.transport.Proof(ctx, peer, newProof(s.identitySnapshot().ID, requestID, "reject", secret, s.now().UTC()))
 	}
 	s.publish(Event{Type: EventPairingRejected, Request: &request, Timestamp: s.now().UTC()})
 	return request, nil

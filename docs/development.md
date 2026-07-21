@@ -29,8 +29,14 @@ go run ./backend/cmd/server
 
 Open <http://127.0.0.1:8384>. The Go process serves the compiled frontend, the
 loopback management API, and WebSockets at that address. It also starts a
-separate TLS 1.3 peer listener on `0.0.0.0:8385` and advertises that peer port
-over mDNS. LAN clients cannot open the management API or frontend.
+separate TLS 1.3 peer listener on `0.0.0.0:8385`. LAN clients cannot open the
+management API or frontend.
+
+On a normal profile, the first page is privacy policy `2026-07-1`. The backend
+does not advertise or browse with mDNS, run transfer workers, or permit pairing
+and transfer routes until that exact version is accepted. After acceptance, it
+advertises peer port `8385` when **Let nearby devices find this device** is on.
+Normal startup never accepts the policy automatically.
 
 The production build is embedded at compile time from
 `backend/internal/frontend/dist`. Re-run `npm run build` after a frontend
@@ -55,6 +61,11 @@ Open <http://127.0.0.1:5173>. Vite hot-reloads React and proxies `/api` REST and
 WebSocket traffic to the backend. It does not replace the backend: discovery,
 pairing, SQLite, transfers, settings, and diagnostics still run in Go.
 
+Privacy acceptance belongs to the backend data profile, not to the browser or
+Vite. Clearing browser storage does not bypass or reset it. If this backend data
+directory has not accepted the current policy, the Vite page shows the same
+first-launch gate as the embedded page.
+
 ## Two-device lab
 
 ```powershell
@@ -71,6 +82,12 @@ This builds one server binary and starts two isolated processes:
 Static loopback discovery is enabled only for this lab. Both processes still
 use real identities, signed pairing, independent trust stores, TLS pinning,
 offer authentication, transfer workers, and persistent SQLite state.
+
+After each lab policy endpoint is reachable, `dev start` accepts the current
+policy for the two isolated `.syncspace-dev` profiles through the real local
+acceptance endpoint. It then requires both servers to report healthy before
+completing verified pairing. `dev verify` uses the same path. This automation is
+limited to the development helper and does not affect normal server startup.
 
 Useful commands:
 
@@ -126,17 +143,27 @@ LAN peer traffic belongs on `SYNCSPACE_PEER_HOST`.
 
 The data directory contains:
 
-- `identity.json`: public device metadata and fingerprint;
+- `identity.json`: stable random device ID, captured hostname, public device
+  metadata, and fingerprint;
 - `identity.key`: protected private identity material (DPAPI ciphertext on
   Windows; mode-`0600` file on other current builds);
 - `syncspace.db`: schema migrations, trusted identities, queues, chunks,
   resumable state, and history;
-- `settings.json`: atomically written user settings;
+- `settings.json`: atomically written device name, discovery/incoming controls,
+  receive preferences, policy version, and acceptance timestamp;
 - `transfers/`: private staging, partial receive files, and managed transfer
   data.
 
 Never copy one live data directory to two devices. That would clone the same
 device identity. Use a clean directory for each installation.
+
+The default data root comes from Go's `os.UserConfigDir`: normally
+`%APPDATA%\SyncSpace` on Windows, `~/Library/Application Support/SyncSpace` on
+macOS, and `${XDG_CONFIG_HOME:-~/.config}/SyncSpace` on Linux. A new profile's
+default receive folder is separate: `<home>/Downloads/SyncSpace`. It is created
+when an incoming transfer is accepted; migrated profiles keep their existing
+chosen path. Both roots can be changed independently through
+`SYNCSPACE_DATA_DIR` and Settings respectively.
 
 ## Build binaries
 
@@ -154,6 +181,11 @@ headless/embedded-web product; they do not create an installer or native shell.
 - Pairing requires proof of identity plus confirmation on both devices.
 - Peer certificates must match the paired Ed25519 key.
 - Management and developer controls remain loopback-only.
+- The current privacy policy must be accepted before discovery, pairing, or
+  transfer work starts.
+- Discoverability controls mDNS only; incoming-offer permission is a separate
+  persisted decision enforced on the peer offer route.
+- Display-name changes never rotate the stable device ID or Ed25519 identity.
 - A transfer is not complete until whole-file SHA-256 verification succeeds.
 - Protocol models, migrations, API docs, discovery capability fields, and UI
   projections must change together.

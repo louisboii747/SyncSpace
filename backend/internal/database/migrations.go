@@ -11,7 +11,7 @@ import (
 	"sort"
 )
 
-const CurrentSchemaVersion = 3
+const CurrentSchemaVersion = 4
 
 type migration struct {
 	version    int
@@ -67,6 +67,20 @@ var migrations = []migration{
 		sort.Strings(names)
 		for _, name := range names {
 			if err := ensureColumn(ctx, tx, "trusted_devices", name, columns[name]); err != nil {
+				return err
+			}
+		}
+		return nil
+	}},
+	{version: 4, name: "transfer peer identity details", apply: func(ctx context.Context, tx *sql.Tx) error {
+		for _, column := range []struct {
+			name       string
+			definition string
+		}{
+			{name: "device_hostname", definition: `TEXT NOT NULL DEFAULT ''`},
+			{name: "device_platform", definition: `TEXT NOT NULL DEFAULT ''`},
+		} {
+			if err := ensureColumn(ctx, tx, "transfers", column.name, column.definition); err != nil {
 				return err
 			}
 		}

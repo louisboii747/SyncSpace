@@ -10,7 +10,10 @@ Current migration groups:
 2. durable transfers, files, chunks, queue/pause/failure/history mirrors, and
    indexes;
 3. cryptographic trust columns for public keys, fingerprints, shared pairing
-   credentials, blocking, and identity-change state.
+   credentials, blocking, and identity-change state;
+4. optional sender `device_hostname` and `device_platform` columns on durable
+   transfers, allowing incoming identity context to survive refresh/restart
+   while retaining old protocol-v1 rows.
 
 Trust credentials and transfer bearer values are never returned by public JSON.
 They are local authorization secrets in SQLite; protect the data directory with

@@ -56,6 +56,7 @@ type ServiceConfig struct {
 // integrity checks, and all durable lifecycle transitions.
 type Service struct {
 	mu            sync.Mutex
+	identityMu    sync.RWMutex
 	store         Store
 	peers         PeerDirectory
 	authorizer    DeviceAuthorizer
@@ -79,6 +80,24 @@ type Service struct {
 	stagingActive map[string]int
 	throttleMu    sync.Mutex
 	throttleDelay time.Duration
+}
+
+// SetDisplayName updates the sender name included in future transfer offers.
+// It does not change trust, keys, tokens, or any transfer already in progress.
+func (s *Service) SetDisplayName(name string) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return
+	}
+	s.identityMu.Lock()
+	s.identity.Name = name
+	s.identityMu.Unlock()
+}
+
+func (s *Service) identitySnapshot() services.Identity {
+	s.identityMu.RLock()
+	defer s.identityMu.RUnlock()
+	return s.identity
 }
 
 func NewService(config ServiceConfig) (*Service, error) {
@@ -190,7 +209,7 @@ func (s *Service) Queue(ctx context.Context, request QueueRequest) (Transfer, er
 	if peer.MaximumChunkSize < chunkSize {
 		chunkSize = peer.MaximumChunkSize
 	}
-	t := Transfer{ID: uuid.NewString(), Direction: DirectionOutbound, DeviceID: request.DeviceID, DeviceName: peer.Name, RemoteAddress: s.peerAddress(peer), Filename: name, SourcePaths: append([]string(nil), request.Paths...), Status: StatusQueued, CreatedAt: now, UpdatedAt: now, Priority: now.UnixNano(), Approved: true, ConflictPolicy: policy, ChunkSize: chunkSize, Compression: peer.CompressionSupport, ProtocolVersion: ProtocolVersion}
+	t := Transfer{ID: uuid.NewString(), Direction: DirectionOutbound, DeviceID: request.DeviceID, DeviceName: peer.Name, DeviceHostname: peer.Hostname, DevicePlatform: peer.Platform, RemoteAddress: s.peerAddress(peer), Filename: name, SourcePaths: append([]string(nil), request.Paths...), Status: StatusQueued, CreatedAt: now, UpdatedAt: now, Priority: now.UnixNano(), Approved: true, ConflictPolicy: policy, ChunkSize: chunkSize, Compression: peer.CompressionSupport, ProtocolVersion: ProtocolVersion}
 	if err := s.store.SaveTransfer(ctx, t); err != nil {
 		return Transfer{}, err
 	}
@@ -237,6 +256,9 @@ func (s *Service) ReceiveOffer(ctx context.Context, offer Offer, remoteAddress s
 	if strings.TrimSpace(offer.DeviceName) == "" || len(offer.DeviceName) > 128 || strings.TrimSpace(offer.Filename) == "" || len(offer.Filename) > 512 {
 		return Transfer{}, fmt.Errorf("%w: invalid offer labels", ErrInvalidRequest)
 	}
+	if len(offer.DeviceHostname) > 255 || len(offer.DevicePlatform) > 64 {
+		return Transfer{}, fmt.Errorf("%w: invalid sender identity details", ErrInvalidRequest)
+	}
 	if offer.ProtocolVersion != ProtocolVersion || offer.ChunkSize <= 0 || offer.ChunkSize > MaximumChunkSize || len(offer.Files) == 0 || offer.Size < 0 || len(offer.SessionToken) < 32 {
 		return Transfer{}, fmt.Errorf("%w: unsupported offer", ErrInvalidRequest)
 	}
@@ -275,7 +297,15 @@ func (s *Service) ReceiveOffer(ctx context.Context, offer Offer, remoteAddress s
 		return Transfer{}, err
 	}
 	now := s.now().UTC()
-	t := Transfer{ID: offer.TransferID, Direction: DirectionInbound, DeviceID: offer.DeviceID, DeviceName: offer.DeviceName, RemoteAddress: remoteAddress, Filename: offer.Filename, Files: offer.Files, Size: offer.Size, Status: StatusQueued, CreatedAt: now, UpdatedAt: now, Priority: now.UnixNano(), ApprovalRequired: true, ConflictPolicy: ConflictPrompt, ChunkSize: offer.ChunkSize, Compression: offer.Compression, ProtocolVersion: offer.ProtocolVersion, SessionTokenHash: hashToken(offer.SessionToken)}
+	hostname := strings.TrimSpace(offer.DeviceHostname)
+	if hostname == "" {
+		hostname = peer.Hostname
+	}
+	platform := strings.TrimSpace(offer.DevicePlatform)
+	if platform == "" {
+		platform = peer.Platform
+	}
+	t := Transfer{ID: offer.TransferID, Direction: DirectionInbound, DeviceID: offer.DeviceID, DeviceName: offer.DeviceName, DeviceHostname: hostname, DevicePlatform: platform, RemoteAddress: remoteAddress, Filename: offer.Filename, Files: offer.Files, Size: offer.Size, Status: StatusQueued, CreatedAt: now, UpdatedAt: now, Priority: now.UnixNano(), ApprovalRequired: true, ConflictPolicy: ConflictPrompt, ChunkSize: offer.ChunkSize, Compression: offer.Compression, ProtocolVersion: offer.ProtocolVersion, SessionTokenHash: hashToken(offer.SessionToken)}
 	if err := s.store.SaveTransfer(ctx, t); err != nil {
 		return Transfer{}, err
 	}
@@ -310,6 +340,9 @@ func (s *Service) Accept(ctx context.Context, id string, request AcceptRequest) 
 	}
 	if err = os.MkdirAll(root, 0o700); err != nil {
 		return Transfer{}, err
+	}
+	if available := availableStorage(root); available > 0 && t.Size > available {
+		return Transfer{}, fmt.Errorf("%w: need %d bytes, %d bytes available", ErrInsufficientStorage, t.Size, available)
 	}
 	policy := request.ConflictPolicy
 	if policy == "" {

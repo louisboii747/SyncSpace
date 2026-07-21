@@ -168,6 +168,29 @@ func TestCorruptedChunkIsRejectedAndPartialTransferCanRetry(t *testing.T) {
 	}
 }
 
+func TestAcceptRejectsDestinationWithoutEnoughFreeSpace(t *testing.T) {
+	senderID := uuid.NewString()
+	service, store := newReceiverService(t, senderID)
+	destination := t.TempDir()
+	available := availableStorage(destination)
+	if available <= 0 {
+		t.Skip("destination free space is unavailable on this platform")
+	}
+	now := time.Now().UTC()
+	item := Transfer{
+		ID: uuid.NewString(), Direction: DirectionInbound, DeviceID: senderID,
+		Filename: "too-large.bin", Size: available + 1, Status: StatusQueued,
+		CreatedAt: now, UpdatedAt: now, ApprovalRequired: true,
+		ConflictPolicy: ConflictRename, ChunkSize: DefaultChunkSize, ProtocolVersion: ProtocolVersion,
+	}
+	if err := store.SaveTransfer(context.Background(), item); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Accept(context.Background(), item.ID, AcceptRequest{DestinationPath: destination, ConflictPolicy: ConflictRename}); !errors.Is(err, ErrInsufficientStorage) {
+		t.Fatalf("expected insufficient storage error, got %v", err)
+	}
+}
+
 func TestFinalChecksumMismatchFailsAndPendingTransferCanBeRejected(t *testing.T) {
 	senderID := uuid.NewString()
 	service, _ := newReceiverService(t, senderID)

@@ -7,7 +7,8 @@ Start here:
 - [Testing and acceptance](TESTING.md)
 - [Architecture](architecture.md)
 - [Security](../SECURITY.md)
-- [Privacy](../PRIVACY.md)
+- [Privacy policy](../PRIVACY.md)
+- [Privacy implementation reference](PRIVACY.md)
 
 Protocol and implementation references:
 

@@ -17,11 +17,14 @@ go run ./backend/cmd/syncspace dev verify
 `npm run check` runs Vitest, TypeScript validation, and a production build. The
 build regenerates the frontend assets embedded by Go.
 
-`dev verify` builds and starts two isolated backend processes, checks both
-management APIs and embedded entrypoints, completes signed X25519/Ed25519
-pairing with the same verification code on both sides, sends a real staged file
-over identity-pinned TLS, accepts it on the receiver, compares SHA-256, verifies
-both persisted histories, and stops both processes.
+`dev verify` builds and starts two isolated backend processes, waits for each
+policy endpoint, accepts privacy policy `2026-07-1` for both temporary profiles
+through the real local API, and then requires both health checks and embedded
+entrypoints to pass. It completes signed X25519/Ed25519 pairing with the same
+verification code on both sides, sends a real staged file over identity-pinned
+TLS, accepts it on the receiver, compares SHA-256, verifies both persisted
+histories, and stops both processes. A normal server start does not auto-accept
+the policy.
 
 ## Backend coverage
 
@@ -47,6 +50,37 @@ authenticated offers, resumable and out-of-order chunks, retry/pause/cancel,
 disk and checksum failures, conflict policies, restart recovery, local API
 origin enforcement, settings validation, and diagnostics.
 
+The settings/API suites also cover policy version acceptance, attempts to forge
+acceptance through ordinary settings writes, schema-v1 migration without silent
+acceptance, the pre-acceptance route gate for versioned and retained legacy
+aliases, and persisted discovery/incoming controls.
+
+Migration/store coverage checks schema v4's `device_hostname` and
+`device_platform` columns and verifies that both optional values survive a
+durable transfer round trip.
+
+Receiver acceptance coverage also creates an offer larger than the destination
+volume's reported free space and verifies `ErrInsufficientStorage` before the
+transfer enters `Receiving`; the API maps that error to HTTP `507`.
+
+### Race detector requirement
+
+`go test -race ./...` requires CGO and a working C compiler. Check the host
+before treating the command as a quality-gate result:
+
+```powershell
+go env CGO_ENABLED
+go env CC
+$env:CGO_ENABLED = "1"
+go test -race ./...
+```
+
+If Go reports that `-race requires cgo` or the compiler is unavailable, the race
+suite did not run; that is a documented environment limitation, not a pass.
+Install a supported C toolchain or run the command on a CGO-enabled Linux/Windows
+builder. The current GitHub Actions workflow runs ordinary tests, vet, builds,
+and the end-to-end smoke test, but does not currently include `go test -race`.
+
 ## Frontend coverage
 
 ```powershell
@@ -57,27 +91,53 @@ npm run lint
 npm run build
 ```
 
-Vitest renders the actual React views and validates loading/empty states,
-device trust projections, transfer controls, progress/history, diagnostics, API
-parsing, and WebSocket event handling. The type build checks all page and API
-contracts.
+The current Vitest suite covers the backend loading state, device name/hostname
+and pairing projections, compatibility and empty states, progress and terminal
+states, direction-appropriate actions, sender review, incoming manifest and
+executable warnings, privacy-gate rendering, diagnostics rendering, transfer
+formatting/browser-path helpers, and transfer WebSocket event parsing. The
+TypeScript/production build checks the complete page and API contracts.
+
+The view tests primarily render markup. Policy acceptance/version-renewal
+interactions, actual add/remove selection behaviour, Settings persistence,
+history clearing, notification permission, and reconnect timing still need
+interaction-focused component tests. Keep those cases in the manual checklist
+below and do not describe the frontend UX as fully automated until they exist.
 
 ## Manual two-computer acceptance
 
 1. Run `npm ci && npm run build` inside `frontend/` on each checkout.
 2. Run `go run ./backend/cmd/server` on both computers on the same LAN.
-3. Open `http://127.0.0.1:8384` locally on both. Confirm the peer appears only
-   as discovered, not trusted.
-4. Pair from one side. Confirm the six-digit code and fingerprint match on both
+3. Open `http://127.0.0.1:8384` locally on both. Before accepting, confirm the
+   policy page is shown and the other computer is neither advertised nor
+   discovered. Accept version `2026-07-1` on both.
+4. Confirm each device card shows a friendly display name and the actual
+   hostname separately.
+5. Pair from one side. Confirm the six-digit code and fingerprint match on both
    screens, approve both, and check that **Verified** appears.
-5. Transfer a small file and a nested folder. Approve the inbound offer and
-   verify content at the destination.
-6. Pause/resume a larger transfer, restart one process during queued work, and
-   verify recovery/history.
-7. Block the peer and confirm new offers fail; unblock it and confirm transfer
+6. Rename one device in Settings. Confirm the nearby card updates while the
+   hostname, stable device ID, and trusted relationship remain unchanged.
+7. Transfer a small file, a nested folder, and a harmless file whose name ends
+   in a script/executable extension. Confirm the sender review shows the right
+   destination, paths, total, and warning. Add and remove an item, then confirm
+   nothing is staged until **Send files** is chosen. Confirm the receiver shows
+   sender display name, hostname, platform, trusted badge, item count, total,
+   scrollable paths, warning, destination, and conflict choice. Also load a
+   legacy offer without hostname/platform and confirm the UI omits those details
+   rather than inventing values. Approve the transfer and verify content at the
+   destination.
+8. From the sender, pause/resume a larger transfer and retry a failed transfer.
+   Confirm the receiver offers accept/decline/cancel but does not claim to
+   support coordinated pause or retry. Restart one process during queued work
+   and verify recovery/history.
+9. Turn incoming offers off and confirm a new offer receives a clear rejection.
+   Turn discoverability off and confirm the mDNS advertisement disappears;
+   restore both controls before continuing.
+10. Block the peer and confirm new offers fail; unblock it and confirm transfer
    works; forget it and confirm a new pairing is required.
-8. Change Settings, restart, and confirm persistence. Export Diagnostics and
-   review it for sensitive paths before sharing.
+11. Change the default receive directory, restart, and confirm it persists. Clear
+    history and confirm received files remain. Export Diagnostics and review it
+    for sensitive paths before sharing.
 
 Windows can independently confirm a received file with:
 
@@ -89,12 +149,16 @@ On macOS/Linux use `sha256sum <path>` (or `shasum -a 256 <path>` on macOS).
 
 ## Browser QA status
 
-Automated DOM tests and production builds run in CI. A manual browser pass
+The current Vitest suite and production build run in CI. A manual browser pass
 should cover desktop width, a narrow mobile viewport, keyboard focus, reduced
 motion, system/light/dark appearance, long filenames, pairing expiry/errors,
-offline devices, large queues, and incoming destination overflow. Record any
-environment where a real browser was unavailable rather than claiming a visual
-pass.
+offline devices, large queues, send-review and incoming-destination overflow,
+friendly copy, and keyboard use through each modal. Record any environment
+where a real browser was unavailable rather than claiming a visual pass.
+
+Manual transfer results should note current scope: browser-staged folders omit
+empty directories, transfer metadata does not preserve modification timestamps
+or permissions, and the embedded UI has no native open/reveal/copy-path action.
 
 ## CI
 

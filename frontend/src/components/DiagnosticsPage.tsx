@@ -46,7 +46,7 @@ export function DiagnosticsPage({ websocketConnected }: { websocketConnected: bo
   const healthEntries = Object.entries(snapshot.health.checks)
   return <section className="diagnostics-page">
     <div className="diagnostics-actions glass-panel">
-      <div><span className="section-kicker">DEVELOPER CONTROL ROOM</span><h2>Runtime diagnostics</h2><p>Live state from this SyncSpace process. Sensitive paths stay local.</p></div>
+      <div><span className="section-kicker">LOCAL SERVICE INFORMATION</span><h2>Runtime diagnostics</h2><p>Diagnostic exports leave out file contents and secret keys, but may include device names, IP addresses, filenames, local paths, and recent errors. Review before sharing.</p></div>
       <div className="diagnostics-button-row">
         <button className="button ghost" disabled={Boolean(busy)} onClick={() => void action('health', api.runHealthCheck, 'Health check completed.')}><Icon name="check"/>Run health check</button>
         <button className="button ghost" disabled={Boolean(busy)} onClick={() => void action('discovery', api.refreshDevices, 'Discovery refresh requested.')}><Icon name="refresh"/>Refresh discovery</button>
@@ -74,7 +74,7 @@ export function DiagnosticsPage({ websocketConnected }: { websocketConnected: bo
 
     <div className="diagnostics-grid logs-grid">
       <article className="diagnostic-card glass-panel"><span className="section-kicker">LOG PREVIEW</span><h3>Recent backend activity</h3><LogList entries={snapshot.logs}/></article>
-      <article className="diagnostic-card glass-panel"><span className="section-kicker">LAST ERRORS</span><h3>Failures worth attention</h3><LogList entries={snapshot.lastErrors}/></article>
+      <article className="diagnostic-card glass-panel"><span className="section-kicker">LAST ERRORS</span><h3>Recent errors</h3><LogList entries={snapshot.lastErrors}/></article>
     </div>
   </section>
 }

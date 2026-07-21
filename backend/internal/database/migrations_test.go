@@ -35,6 +35,12 @@ func TestMigrateIsOrderedAndIdempotent(t *testing.T) {
 	if count != 3 {
 		t.Fatalf("cryptographic trust columns=%d", count)
 	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('transfers') WHERE name IN ('device_hostname','device_platform')`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Fatalf("transfer peer identity columns=%d", count)
+	}
 }
 
 func TestMigrateUpgradesLegacyTrustedDeviceTable(t *testing.T) {

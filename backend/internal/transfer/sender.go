@@ -72,7 +72,13 @@ func (s *Service) processOutbound(ctx context.Context, id string) error {
 		return err
 	}
 	s.logAndPublish(EventQueueUpdated, t)
-	offer := Offer{TransferID: t.ID, DeviceID: s.identity.ID, DeviceName: s.identity.Name, SessionToken: t.SessionToken, Filename: t.Filename, Size: t.Size, Files: t.Files, ChunkSize: t.ChunkSize, Compression: t.Compression, ProtocolVersion: ProtocolVersion}
+	identity := s.identitySnapshot()
+	offer := Offer{
+		TransferID: t.ID, DeviceID: identity.ID, DeviceName: identity.Name,
+		DeviceHostname: identity.Hostname, DevicePlatform: identity.Platform,
+		SessionToken: t.SessionToken, Filename: t.Filename, Size: t.Size, Files: t.Files,
+		ChunkSize: t.ChunkSize, Compression: t.Compression, ProtocolVersion: ProtocolVersion,
+	}
 	t.Status = StatusNegotiating
 	t.UpdatedAt = s.now().UTC()
 	if err = s.store.SaveTransfer(ctx, t); err != nil {

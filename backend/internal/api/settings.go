@@ -2,12 +2,13 @@ package api
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/louisboii747/syncspace/backend/internal/settings"
 )
 
-func registerSettingsRoutes(router *gin.Engine, store *settings.Store) {
+func registerSettingsRoutes(router *gin.Engine, store *settings.Store, onChange func(settings.Values)) {
 	if store == nil {
 		return
 	}
@@ -24,14 +25,45 @@ func registerSettingsRoutes(router *gin.Engine, store *settings.Store) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		if onChange != nil {
+			onChange(updated)
+		}
 		c.JSON(http.StatusOK, updated)
 	})
 	local.POST("/reset", func(c *gin.Context) {
-		updated, err := store.Update(settings.Defaults())
+		defaults := settings.Defaults()
+		defaults.DeviceName = store.Get().DeviceName
+		updated, err := store.Update(defaults)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "unable to reset settings"})
 			return
 		}
+		if onChange != nil {
+			onChange(updated)
+		}
 		c.JSON(http.StatusOK, updated)
+	})
+
+	privacy := router.Group("/privacy-policy", localOnly())
+	privacy.GET("", func(c *gin.Context) {
+		c.JSON(http.StatusOK, settings.Policy(store.Get()))
+	})
+	privacy.POST("/accept", func(c *gin.Context) {
+		var body struct {
+			Version string `json:"version"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil || body.Version == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "privacy policy version is required"})
+			return
+		}
+		updated, err := store.AcceptPrivacy(body.Version, time.Now().UTC())
+		if err != nil {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+			return
+		}
+		if onChange != nil {
+			onChange(updated)
+		}
+		c.JSON(http.StatusOK, settings.Policy(updated))
 	})
 }

@@ -25,6 +25,7 @@ import (
 	"github.com/louisboii747/syncspace/backend/internal/models"
 	"github.com/louisboii747/syncspace/backend/internal/pairing"
 	"github.com/louisboii747/syncspace/backend/internal/services"
+	"github.com/louisboii747/syncspace/backend/internal/settings"
 	"github.com/louisboii747/syncspace/backend/internal/transfer"
 )
 
@@ -162,17 +163,29 @@ func devStart(args []string) error {
 	}
 	defer stopCommands(commands)
 	urlA, urlB := fmt.Sprintf("http://127.0.0.1:%d", *portA), fmt.Sprintf("http://127.0.0.1:%d", *portB)
-	if err = waitHealthy(ctx, urlA, 30*time.Second); err != nil {
-		return fmt.Errorf("device A: %w", err)
+	if err = waitPrivacyPolicy(ctx, urlA, 30*time.Second); err != nil {
+		return fmt.Errorf("device A startup: %w", err)
 	}
-	if err = waitHealthy(ctx, urlB, 30*time.Second); err != nil {
-		return fmt.Errorf("device B: %w", err)
+	if err = waitPrivacyPolicy(ctx, urlB, 30*time.Second); err != nil {
+		return fmt.Errorf("device B startup: %w", err)
 	}
 	if err = waitFrontend(urlA); err != nil {
 		return fmt.Errorf("Device A frontend: %w", err)
 	}
 	if err = waitFrontend(urlB); err != nil {
 		return fmt.Errorf("Device B frontend: %w", err)
+	}
+	if err = acceptCurrentPrivacyPolicy(urlA); err != nil {
+		return fmt.Errorf("Device A privacy acceptance: %w", err)
+	}
+	if err = acceptCurrentPrivacyPolicy(urlB); err != nil {
+		return fmt.Errorf("Device B privacy acceptance: %w", err)
+	}
+	if err = waitHealthy(ctx, urlA, 30*time.Second); err != nil {
+		return fmt.Errorf("device A after privacy acceptance: %w", err)
+	}
+	if err = waitHealthy(ctx, urlB, 30*time.Second); err != nil {
+		return fmt.Errorf("device B after privacy acceptance: %w", err)
 	}
 	if err = ensureMutualTrust(urlA, urlB); err != nil {
 		return fmt.Errorf("complete verified development pairing: %w", err)
@@ -202,6 +215,13 @@ func devStart(args []string) error {
 		}
 		return nil
 	}
+}
+
+func acceptCurrentPrivacyPolicy(base string) error {
+	var policy struct {
+		Accepted bool `json:"accepted"`
+	}
+	return jsonRequest(http.MethodPost, base+"/api/v1/privacy-policy/accept", map[string]any{"version": settings.CurrentPrivacyPolicyVersion}, &policy)
 }
 
 func buildServer(root string) (string, error) {
@@ -292,7 +312,7 @@ func writeIdentity(dataDir string, identity services.Identity) (services.Identit
 }
 
 func localPeer(identity services.Identity, port int) models.Device {
-	return models.Device{ID: identity.ID, Name: identity.Name, Type: identity.Type, Platform: identity.Platform, LocalIP: "127.0.0.1", Port: port, AppVersion: "dev-local", LastSeen: time.Now().UTC(), Online: true, ConnectionState: models.ConnectionOnline, AvailableStorage: 1 << 40, TransferCapability: true, SupportedProtocolVersion: transfer.ProtocolVersion, MaximumChunkSize: transfer.MaximumChunkSize, CompressionSupport: true, IdentityHint: identity.ShortFingerprint(), PairingAvailable: true}
+	return models.Device{ID: identity.ID, Name: identity.Name, Hostname: identity.Hostname, Type: identity.Type, Platform: identity.Platform, LocalIP: "127.0.0.1", Port: port, AppVersion: "dev-local", LastSeen: time.Now().UTC(), Online: true, ConnectionState: models.ConnectionOnline, AvailableStorage: 1 << 40, TransferCapability: true, SupportedProtocolVersion: transfer.ProtocolVersion, MaximumChunkSize: transfer.MaximumChunkSize, CompressionSupport: true, IdentityHint: identity.ShortFingerprint(), PairingAvailable: true}
 }
 
 func devReset() error {
@@ -617,6 +637,26 @@ func waitHealthy(ctx context.Context, base string, timeout time.Duration) error 
 		time.Sleep(250 * time.Millisecond)
 	}
 	return errors.New("health check timed out")
+}
+
+func waitPrivacyPolicy(ctx context.Context, base string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		response, err := http.Get(base + "/api/v1/privacy-policy")
+		if err == nil {
+			response.Body.Close()
+			if response.StatusCode == http.StatusOK {
+				return nil
+			}
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	return errors.New("privacy startup endpoint timed out")
 }
 
 func waitFrontend(base string) error {

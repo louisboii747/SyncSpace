@@ -27,6 +27,34 @@ Legacy unversioned management paths are retained during migration. The LAN
 listener serves `/v1/pairing/*` and `/v1/transfers/*`; local-only middleware
 prevents it from reaching management routes.
 
+Both sockets are bound during process startup so failures are reported
+immediately. Binding the peer socket is not permission to use it: until privacy
+policy `2026-07-1` is accepted, backend middleware rejects operational local and
+peer routes. The runtime supervisor also keeps discovery and transfer workers
+stopped.
+
+## Privacy-gated startup
+
+Normal startup follows this order:
+
+1. Resolve paths, load or create identity, load settings, migrate SQLite, and
+   compose the local and peer HTTP servers.
+2. Serve the local UI plus the policy, settings, identity, and health endpoints.
+3. If the accepted policy version is missing or stale, keep mDNS and transfer
+   workers stopped and reject discovery, pairing, diagnostics, WebSocket,
+   staging, and transfer operations with `403`.
+4. After explicit acceptance, start transfer recovery/workers. Start mDNS
+   browsing and advertising only when `discoverable` is also true.
+5. React to later settings changes without restarting: withdraw or restore mDNS
+   for discoverability changes and reject new offers when incoming transfers
+   are disabled.
+
+The UI is therefore not the security boundary. A local client that calls an
+operational endpoint directly receives the same policy decision. The developer
+lab waits for each isolated policy endpoint, accepts the current policy through
+the real local API, and only then requires both processes to report healthy;
+normal server startup never auto-accepts.
+
 ## Ownership boundaries
 
 - `backend/internal/services`: persistent device identity and platform secret
@@ -51,6 +79,26 @@ prevents it from reaching management routes.
 An installation creates a stable Ed25519 identity. The public key fingerprint
 is advertised as a short mDNS hint; the complete key is supplied and signed in
 the pairing protocol. Discovery metadata alone is never authoritative.
+
+The identity model deliberately separates three labels:
+
+- `deviceId` is a secure random UUID persisted in `identity.json`. It survives
+  hostname and display-name changes and is not based on a MAC address or private
+  hardware identifier.
+- `hostname` is the operating-system hostname captured in identity metadata and
+  advertised so a person can recognise the physical computer.
+- `deviceName` is the editable SyncSpace display name. It defaults from the
+  hostname or a platform fallback, then persists in `settings.json`.
+
+Changing `deviceName` refreshes mDNS and updates names used in future pairing
+messages and transfer offers. It does not rotate the Ed25519 key, change the
+stable device ID, or invalidate durable trust. A discovered name or hostname is
+presentation data; trust remains bound to the paired public key.
+
+mDNS TXT data includes the device ID, display name, hostname, platform/type,
+app version, peer port, protocol/capability values, availability, and a short
+identity hint. It never includes pairing credentials, transfer tokens, file
+paths, usernames, or file content.
 
 Pairing performs an ephemeral X25519 exchange. Each side signs its contribution
 with Ed25519, validates the discovered identity hint, derives the same shared
@@ -80,6 +128,11 @@ inside the TLS 1.3 channel. The sender pins the peer certificate's Ed25519 key
 to the paired public key. Resume maps identify existing chunks, and a bounded
 worker pool sends only missing chunks with optional gzip.
 
+Before approval changes the state to `Receiving`, the receiver creates/resolves
+the chosen destination and compares the transfer size with filesystem-reported
+free space. A known shortfall fails acceptance with HTTP `507`; an unavailable
+platform reading is not presented as a made-up capacity.
+
 The receiver writes by offset into private `.part` files. It validates each
 chunk digest before marking it present. Completion requires all chunks plus a
 streamed whole-file SHA-256 check before the partial is moved into the approved
@@ -93,16 +146,58 @@ promotes its top-level roots into the same durable transfer queue used by native
 path submissions. Unfinished staging expires automatically. Peer devices never
 access the staging API.
 
+The browser supplies file bodies and relative paths, not a complete filesystem
+manifest. An empty directory has no file body and is therefore absent from a
+browser-staged folder. Browser staging also does not preserve modification
+timestamps or filesystem permissions. Native path submission can represent
+empty directories, but the current transfer model still does not carry
+timestamps or permissions across devices.
+
+## Embedded UI workflow
+
+The React interface is a task-focused control surface for the backend, not a
+separate source of transfer truth. Its current send sequence is:
+
+1. choose an online, compatible, paired device;
+2. choose or drop files/folders;
+3. review the display name, hostname, destination platform, relative paths,
+   individual sizes, total size, and executable/script extension warnings;
+4. add more files/folders, remove individual files, or clear the selection while
+   it is still unstaged;
+5. confirm before browser staging and queue creation begin;
+6. follow backend byte counts through transfer and SHA-256 verification.
+
+The incoming review shows the authenticated sender display name, optional
+hostname/platform, explicit trusted status, manifest summary and item count, a
+bounded scrollable per-file preview, total size, executable/script warnings,
+destination, and conflict policy before any file body is accepted. Missing
+hostname/platform values from legacy offers are omitted. Completion is rendered
+only after the backend publishes the verified terminal state.
+Friendly UI status text may translate backend state names, but it does not
+invent progress or hide the underlying failure.
+
+The backend is authoritative after a refresh or WebSocket reconnect. Device,
+pairing, transfer, history, settings, and privacy data are reloaded from the
+loopback API.
+
 ## Persistence and migrations
 
 `schema_migrations` records ordered database upgrades. Current migrations cover
-legacy trusted devices, durable transfer/session/chunk/history state, and the
-cryptographic trust columns. Stores call the same central migrator, so an old
-database upgrades before either pairing or transfer code uses it.
+legacy trusted devices, durable transfer/session/chunk/history state,
+cryptographic trust columns, and optional sender hostname/platform fields on
+durable transfers. Stores call the same central migrator, so an old database
+upgrades before either pairing or transfer code uses it.
 
 Settings use a separate validated JSON document written through a temporary
 file and atomic rename. Identity public metadata and private material are kept
 in separate files.
+
+Settings schema v2 adds the editable device name, discoverability, incoming-
+offer control, policy version, and policy acceptance timestamp. General settings
+writes preserve privacy acceptance; only the exact-version acceptance operation
+can change it. New profiles default to `<home>/Downloads/SyncSpace`, created
+when an inbound transfer is accepted, while migrations preserve an existing
+chosen path. The safe default conflict policy is rename.
 
 ## Resource limits
 
@@ -113,6 +208,20 @@ in separate files.
 - Retry backoff adds and later relaxes adaptive send delay.
 - WebSocket consumers receive full projections and can reconnect for a fresh
   snapshot if they fall behind.
+
+## Current limitations
+
+- Pause, resume, and retry controls in the embedded UI are sender-side. A
+  receiver can accept, decline, or cancel, but coordinated receiver pause/retry
+  is not implemented end to end.
+- Extension-based executable/script warnings are shown on send and receive
+  review. SyncSpace does not inspect file content for malware and never opens or
+  executes a received file automatically.
+- The headless/embedded-web runtime has no platform shell for opening a received
+  file, revealing it in a file manager, copying its path, or opening the local
+  data directory.
+- Destination conflicts are resolved by the receiver. Browser send review
+  cannot know the remote filesystem's conflicts in advance.
 
 ## Platform state
 

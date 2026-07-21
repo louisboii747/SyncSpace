@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, connectTransferEvents } from '../api'
-import type { Device, PairingRequest, Settings, Transfer, TransferEvent, TrustedDevice } from '../types'
+import type { Device, PairingRequest, PrivacyPolicy, Settings, Transfer, TransferEvent, TrustedDevice } from '../types'
+import { isTerminal } from '../utils'
 
 export interface ToastMessage {
   id: number
@@ -10,11 +11,13 @@ export interface ToastMessage {
 }
 
 export function useSyncSpace() {
+	const [localDevice, setLocalDevice] = useState<Device | null>(null)
   const [devices, setDevices] = useState<Device[]>([])
   const [trusted, setTrusted] = useState<TrustedDevice[]>([])
 	const [transfers, setTransfers] = useState<Transfer[]>([])
 	const [pairingRequests, setPairingRequests] = useState<PairingRequest[]>([])
 	const [settings, setSettings] = useState<Settings | null>(null)
+	const [privacyPolicy, setPrivacyPolicy] = useState<PrivacyPolicy | null>(null)
   const [loading, setLoading] = useState(true)
   const [connected, setConnected] = useState(false)
   const [error, setError] = useState('')
@@ -28,24 +31,48 @@ export function useSyncSpace() {
     window.setTimeout(() => setToasts((current) => current.filter((item) => item.id !== id)), 5000)
   }, [])
 
+  const loadOperationalState = useCallback(async () => {
+		const [deviceList, trustList, pairingList, transferList] = await Promise.all([
+			api.devices(),
+			api.trustedDevices(),
+			api.pairingRequests(),
+			api.transfers(),
+		])
+		setDevices(deviceList)
+		setTrusted(trustList)
+		setPairingRequests(pairingList)
+		setTransfers(transferList)
+	}, [])
+
   const load = useCallback(async () => {
     try {
-		const [deviceList, trustList, pairingList, transferList, currentSettings] = await Promise.all([api.devices(), api.trustedDevices(), api.pairingRequests(), api.transfers(), api.settings()])
-      setDevices(deviceList)
-      setTrusted(trustList)
-		setTransfers(transferList)
-		setPairingRequests(pairingList)
+		const [policy, currentSettings, self] = await Promise.all([
+			api.privacyPolicy(),
+			api.settings(),
+			api.self(),
+		])
+		setPrivacyPolicy(policy)
 		setSettings(currentSettings)
+		setLocalDevice(self)
+		if (policy.accepted) {
+			await loadOperationalState()
+		} else {
+			setDevices([])
+			setTrusted([])
+			setPairingRequests([])
+			setTransfers([])
+		}
       setError('')
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'SyncSpace backend is unavailable')
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [loadOperationalState])
 
   useEffect(() => { void load() }, [load])
   useEffect(() => {
+		if (!privacyPolicy?.accepted) return
     const refresh = window.setInterval(() => {
 		void Promise.all([api.devices(), api.trustedDevices(), api.pairingRequests()]).then(([nextDevices, nextTrusted, nextPairing]) => {
         setDevices(nextDevices)
@@ -54,9 +81,14 @@ export function useSyncSpace() {
       }).catch(() => undefined)
     }, 10_000)
     return () => window.clearInterval(refresh)
-  }, [])
+  }, [privacyPolicy?.accepted])
 
-  useEffect(() => connectTransferEvents((event: TransferEvent) => {
+	useEffect(() => {
+		if (!privacyPolicy?.accepted) {
+			setConnected(false)
+			return
+		}
+		return connectTransferEvents((event: TransferEvent) => {
     setTransfers((current) => {
       const index = current.findIndex((item) => item.uuid === event.transfer.uuid)
       if (index < 0) return [event.transfer, ...current]
@@ -73,14 +105,16 @@ export function useSyncSpace() {
     } else if (event.type === 'Failure') {
       toast('error', 'Transfer needs attention', event.transfer.error || event.transfer.filename)
     }
-	}, setConnected), [settings?.notificationsEnabled, toast])
+		}, setConnected)
+	}, [privacyPolicy?.accepted, settings?.notificationsEnabled, toast])
 
 	const trustedIDs = useMemo(() => new Set(trusted.filter((item) => !item.blocked && !item.identityKeyChanged).map((item) => item.deviceId)), [trusted])
-  const active = useMemo(() => transfers.filter((item) => !['Completed', 'Cancelled'].includes(item.status)), [transfers])
-  const history = useMemo(() => transfers.filter((item) => ['Completed', 'Cancelled'].includes(item.status)), [transfers])
+  const active = useMemo(() => transfers.filter((item) => !isTerminal(item)), [transfers])
+  const history = useMemo(() => transfers.filter(isTerminal), [transfers])
 
   return {
-		devices, trusted, trustedIDs, pairingRequests, settings, transfers, active, history, loading, connected, error,
-		toasts, celebration, toast, reload: load, setTrusted, setPairingRequests, setSettings, setTransfers,
+		localDevice, devices, trusted, trustedIDs, pairingRequests, settings, privacyPolicy,
+		transfers, active, history, loading, connected, error, toasts, celebration, toast,
+		reload: load, setLocalDevice, setTrusted, setPairingRequests, setSettings, setPrivacyPolicy, setTransfers,
   }
 }

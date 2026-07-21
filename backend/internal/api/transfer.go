@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/louisboii747/syncspace/backend/internal/settings"
 	"github.com/louisboii747/syncspace/backend/internal/transfer"
 )
 
@@ -36,7 +37,7 @@ type TransferService interface {
 	DeleteStage(context.Context, string) error
 }
 
-func registerTransferRoutes(router *gin.Engine, service TransferService, socket gin.HandlerFunc, logger *slog.Logger) {
+func registerTransferRoutes(router *gin.Engine, service TransferService, socket gin.HandlerFunc, preferences *settings.Store, logger *slog.Logger) {
 	local := router.Group("/transfers", localOnly())
 	local.POST("/staging", func(c *gin.Context) {
 		value, err := service.CreateStage(c.Request.Context())
@@ -154,6 +155,10 @@ func registerTransferRoutes(router *gin.Engine, service TransferService, socket 
 
 	peer := router.Group("/v1/transfers")
 	peer.POST("/offers", func(c *gin.Context) {
+		if preferences != nil && !preferences.Get().IncomingTransfersEnabled {
+			c.JSON(http.StatusForbidden, gin.H{"error": "this device is not accepting new transfer offers"})
+			return
+		}
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 64<<20)
 		var body transfer.Offer
 		if err := c.ShouldBindJSON(&body); err != nil {
@@ -228,6 +233,8 @@ func writeTransferError(c *gin.Context, logger *slog.Logger, err error) {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 	case errors.Is(err, transfer.ErrChecksumMismatch):
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+	case errors.Is(err, transfer.ErrInsufficientStorage):
+		c.JSON(http.StatusInsufficientStorage, gin.H{"error": err.Error()})
 	default:
 		logger.Error("Transfer API error", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})

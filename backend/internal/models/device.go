@@ -29,6 +29,7 @@ const (
 type Device struct {
 	ID                       string          `json:"deviceId"`
 	Name                     string          `json:"deviceName"`
+	Hostname                 string          `json:"hostname"`
 	Type                     string          `json:"deviceType"`
 	Platform                 string          `json:"platform"`
 	LocalIP                  string          `json:"localIp"`

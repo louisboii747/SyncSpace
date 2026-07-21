@@ -29,6 +29,7 @@ const identityProtocolVersion = 1
 type Identity struct {
 	ID              string             `json:"deviceId"`
 	Name            string             `json:"deviceName"`
+	Hostname        string             `json:"hostname"`
 	Type            string             `json:"deviceType"`
 	Platform        string             `json:"platform"`
 	ProtocolVersion int                `json:"protocolVersion"`
@@ -102,6 +103,10 @@ func (s *FileIdentityStore) LoadOrCreate() (Identity, error) {
 		identity.ProtocolVersion = identityProtocolVersion
 		metadataChanged = true
 	}
+	if hostname := systemHostname(); hostname != "" && identity.Hostname != hostname {
+		identity.Hostname = hostname
+		metadataChanged = true
+	}
 	now := time.Now().UTC()
 	if identity.CreatedAt.IsZero() {
 		identity.CreatedAt = now
@@ -110,6 +115,9 @@ func (s *FileIdentityStore) LoadOrCreate() (Identity, error) {
 	if identity.ModifiedAt.IsZero() {
 		identity.ModifiedAt = identity.CreatedAt
 		metadataChanged = true
+	}
+	if metadataChanged {
+		identity.ModifiedAt = now
 	}
 	identity.PrivateKey = privateKey
 	if err := identity.Validate(); err != nil {
@@ -215,6 +223,9 @@ func (i Identity) Validate() error {
 	if strings.TrimSpace(i.Name) == "" || len(i.Name) > 128 {
 		return errors.New("device name must contain 1 to 128 characters")
 	}
+	if len(i.Hostname) > 255 {
+		return errors.New("hostname is too long")
+	}
 	if strings.TrimSpace(i.Type) == "" || len(i.Type) > 32 || strings.TrimSpace(i.Platform) == "" || len(i.Platform) > 32 {
 		return errors.New("device type and platform are required")
 	}
@@ -255,19 +266,30 @@ func (i Identity) ShortFingerprint() string {
 
 func newIdentityMetadata() Identity {
 	now := time.Now().UTC()
-	return Identity{ID: uuid.NewString(), Name: friendlyDeviceName(), Type: currentDeviceType(), Platform: runtime.GOOS, ProtocolVersion: identityProtocolVersion, CreatedAt: now, ModifiedAt: now}
+	hostname := systemHostname()
+	return Identity{ID: uuid.NewString(), Name: friendlyDeviceName(hostname), Hostname: hostname, Type: currentDeviceType(), Platform: runtime.GOOS, ProtocolVersion: identityProtocolVersion, CreatedAt: now, ModifiedAt: now}
 }
 
-func friendlyDeviceName() string {
+func systemHostname() string {
 	hostname, err := os.Hostname()
 	if err == nil {
 		hostname = strings.TrimSpace(strings.TrimSuffix(hostname, ".local"))
 		if hostname != "" {
-			if len(hostname) > 128 {
-				return hostname[:128]
+			if len(hostname) > 255 {
+				return hostname[:255]
 			}
 			return hostname
 		}
+	}
+	return ""
+}
+
+func friendlyDeviceName(hostname string) string {
+	if hostname != "" {
+		if len(hostname) > 128 {
+			return hostname[:128]
+		}
+		return hostname
 	}
 	switch runtime.GOOS {
 	case "darwin":

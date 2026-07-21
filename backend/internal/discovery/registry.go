@@ -180,6 +180,7 @@ func validateDiscoveredDevice(device models.Device) error {
 		return errors.Join(ErrInvalidDevice, err)
 	}
 	if strings.TrimSpace(device.Name) == "" || len(device.Name) > 128 ||
+		len(device.Hostname) > 255 ||
 		strings.TrimSpace(device.Type) == "" || len(device.Type) > 32 ||
 		strings.TrimSpace(device.Platform) == "" || len(device.Platform) > 32 ||
 		strings.TrimSpace(device.AppVersion) == "" || len(device.AppVersion) > 64 ||
@@ -191,12 +192,15 @@ func validateDiscoveredDevice(device models.Device) error {
 }
 
 func identityConflicts(existing, incoming models.Device) bool {
-	return existing.Name != incoming.Name || existing.Type != incoming.Type || existing.Platform != incoming.Platform ||
-		(existing.IdentityHint != "" && incoming.IdentityHint != "" && existing.IdentityHint != incoming.IdentityHint)
+	if existing.IdentityHint == "" {
+		return false
+	}
+	return incoming.IdentityHint == "" || existing.IdentityHint != incoming.IdentityHint
 }
 
 func metadataChanged(existing, incoming models.Device) bool {
 	return existing.Name != incoming.Name ||
+		existing.Hostname != incoming.Hostname ||
 		existing.Type != incoming.Type ||
 		existing.Platform != incoming.Platform ||
 		existing.LocalIP != incoming.LocalIP ||

@@ -1,10 +1,10 @@
 # SyncSpace
 
-SyncSpace is a local-first device transfer service. Each device owns its identity,
-discovers nearby peers over mDNS, pairs through a user-verified cryptographic
-handshake, and transfers files directly over identity-pinned TLS. There is no
-account, cloud storage, relay, analytics service, or internet fallback in the
-current product.
+SyncSpace is a local-first device transfer service. Each device owns its
+identity, discovers nearby peers over mDNS, pairs through a user-verified
+cryptographic handshake, and transfers files directly over identity-pinned TLS.
+There is no account, cloud storage, relay, analytics service, or internet
+fallback in the current product.
 
 The runnable product today is a Go engine with a responsive React control
 surface embedded into the same executable. It provides Home, Transfers,
@@ -24,14 +24,36 @@ cd ..
 go run ./backend/cmd/server
 ```
 
-Open <http://127.0.0.1:8384>. This one command starts:
+Open <http://127.0.0.1:8384>. This one command prepares:
 
 - the loopback-only management API and embedded frontend on port `8384`;
-- the encrypted LAN peer service on port `8385`;
-- mDNS discovery, pairing, transfer workers, WebSockets, SQLite, and diagnostics.
+- the TLS 1.3 LAN peer listener on port `8385`;
+- pairing, transfer workers, WebSockets, SQLite, and diagnostics.
 
 Stop it with `Ctrl+C`. On first launch SyncSpace creates a device identity and
 data directory under the operating system's user configuration directory.
+
+## First launch and privacy
+
+The first page is the privacy policy, version `2026-07-1`. Read it and choose
+**Accept and continue** before using the rest of SyncSpace. Acceptance records
+the policy version and UTC timestamp in `settings.json`. SyncSpace asks again if
+the shipped policy version changes or its local data is reset.
+
+This is enforced by the Go backend, not only by the page. Until the current
+policy is accepted:
+
+- mDNS advertising and discovery do not run;
+- pairing and transfer management calls return `403 Forbidden`;
+- peer pairing and transfer routes return `403 Forbidden`;
+- transfer workers remain stopped.
+
+The local UI, health check, device identity, settings, and policy endpoints stay
+available so the policy can be read and accepted. Choosing **Decline** keeps
+SyncSpace paused; it does not silently enable networking.
+
+The current policy is available later under **Settings > Privacy** and in
+[PRIVACY.md](PRIVACY.md).
 
 ## Develop the frontend with hot reload
 
@@ -55,8 +77,9 @@ the embedded UI again; that command regenerates the assets compiled into Go.
 
 ## Try two devices on one computer
 
-The local lab builds and starts two isolated real backend processes, performs
-the same signed pairing protocol used on a LAN, and keeps both running:
+The local lab builds and starts two isolated real backend processes, accepts the
+current policy for those temporary lab profiles, performs the same signed
+pairing protocol used on a LAN, and keeps both running:
 
 ```powershell
 go run ./backend/cmd/syncspace dev start
@@ -81,22 +104,71 @@ Reset only the lab data with `go run ./backend/cmd/syncspace dev reset`.
 1. Build and run the server on both computers connected to the same local
    network. Allow the SyncSpace peer port (`8385/TCP`) through the host firewall
    if the operating system asks.
-2. Open `http://127.0.0.1:8384` locally on each computer.
-3. Open **Devices**. Discovery can show a device, but never trusts it.
-4. Choose **Pair securely** on one device. Compare the six-digit code and the
+2. Open `http://127.0.0.1:8384` locally on each computer. Read and accept the
+   privacy policy on both devices. Neither device is advertised before this.
+3. Open **Devices**. Discovery can show a device, but never trusts it. Cards use
+   the editable SyncSpace name as the main label and show the operating-system
+   hostname separately so the computer is easier to recognise.
+4. Choose **Pair device** on one computer. Compare the six-digit code and full
    identity fingerprint shown on both computers, then confirm on both.
-5. Open **Transfers** on the sender, select the verified device, and choose or
-   drop files/folders. The browser streams the selection into private local
-   staging before it enters the durable queue.
-6. Approve the incoming transfer on the receiver. Choose its destination and
-   conflict policy. Progress, pause/resume, cancel/retry, verification, and
-   history remain available after restart.
+5. Open **Transfers** on the sender and choose a device marked **Ready**. Choose
+   files or a folder, or drop them into the window. Review the destination,
+   relative file names, individual sizes, total size, and any executable or
+   script warning. Add more files, add another folder, remove an item, or clear
+   the selection as needed. Nothing is staged or sent until **Send files** is
+   chosen.
+6. Approve the incoming transfer on the receiver. Check the sender's display
+   name, hostname, platform, trusted status, item count, total size, bounded
+   per-file preview, and any executable/script warning; choose the save folder
+   and name-conflict behaviour, then accept or decline. Progress comes from
+   backend byte counts and completion is shown only after SHA-256 verification
+   succeeds. Before acceptance, the receiver checks that the destination volume
+   reports enough free space for the expected bytes. Older stored offers may not
+   have hostname/platform details.
 
-**Settings** persists appearance, reduced motion, the default receive folder,
-the default conflict policy, and notification preference. **Devices** can block,
-unblock, or forget a paired identity. **Diagnostics** can check health, refresh
-discovery, inspect runtime paths and logs, and export a redacted-by-design ZIP
-for support; review local filenames and paths before sharing it.
+**Settings** lets you rename the device without changing its stable ID or trust
+relationships. It also controls mDNS discoverability, whether new incoming
+offers are allowed, appearance, reduced motion, the default receive folder,
+the default conflict policy, and notifications. Turning discoverability off
+stops the local mDNS discovery session and withdraws its advertisement. Turning
+incoming offers off rejects new offers before file data is accepted. These are
+separate controls and neither one deletes trusted devices or transfer history.
+
+A new profile's default receive folder is `Downloads/SyncSpace` inside the
+current user's home directory (`Downloads\SyncSpace` on Windows). Existing
+profiles keep their chosen path during settings migration. SyncSpace creates the
+folder when an incoming transfer is accepted. **Keep both files** is the safe
+default for name conflicts; it renames an incoming file rather than overwriting
+an existing one.
+
+**Devices** can block, unblock, or forget a paired identity. **History** can
+clear completed, cancelled, and failed records without deleting received files.
+**Diagnostics** can check health, refresh discovery, inspect runtime paths and
+logs, and export a redacted-by-design ZIP for support; review local filenames
+and paths before sharing it.
+
+## Device name, hostname, and stable identity
+
+These values have different jobs:
+
+- **Device name** is the friendly, editable label shown to people nearby. A new
+  profile starts with the best available operating-system hostname or a
+  platform fallback. It is stored in `settings.json`.
+- **Hostname** is the operating-system computer name captured in the device
+  identity. It is shown separately and is not changed by renaming SyncSpace.
+- **Device ID** is a random UUID created once. It does not contain the MAC
+  address or another hardware identifier. Renaming the device does not change
+  it or invalidate an existing trusted-device record.
+- **Cryptographic identity** is the Ed25519 key pair used to prove that the same
+  SyncSpace installation has returned.
+
+The public metadata and stable device ID live in `identity.json`; private key
+material lives separately in `identity.key`. With the default data root these
+files are under `%APPDATA%\SyncSpace` on Windows,
+`~/Library/Application Support/SyncSpace` on macOS, and
+`${XDG_CONFIG_HOME:-~/.config}/SyncSpace` on Linux. `SYNCSPACE_DATA_DIR` replaces
+that root when set. Windows protects `identity.key` with user-scoped DPAPI;
+other current builds restrict it to mode `0600`.
 
 ## Security model
 
@@ -134,11 +206,28 @@ two-process encrypted transfer smoke test.
 
 ## Current scope
 
-Implemented now: mDNS discovery, stable identity, verified pairing, durable
-trust/block/forget, encrypted authenticated file/folder transfer, incoming
-approval, pause/resume/cancel/retry, crash recovery, conflict handling, history,
-settings, diagnostics, local browser staging, versioned management APIs,
-WebSockets, SQLite migrations, and the embedded responsive React experience.
+Implemented now: the versioned first-launch privacy gate, mDNS discovery,
+separate display name and hostname, stable identity, verified pairing, durable
+trust/block/forget, encrypted authenticated file/folder transfer, sender and
+receiver review, executable/script warnings, incoming approval, outgoing
+pause/resume/retry, cancellation, crash recovery, conflict handling, history,
+privacy and receive settings, diagnostics, local browser staging, versioned
+management APIs, WebSockets, SQLite migrations, and the embedded responsive
+React experience.
+
+Current transfer limits are deliberately visible:
+
+- browser folder selection uploads files and relative paths, but cannot retain
+  empty directories because the browser does not provide an upload body for
+  them;
+- modification timestamps and file permissions are not preserved by the
+  current transfer manifest;
+- the embedded UI does not yet provide native **Open**, **Reveal in folder**, or
+  **Copy path** actions after receipt;
+- pause/resume/retry controls are currently sender-side. A receiver can accept,
+  decline, or cancel, but cannot coordinate pause or retry from its UI;
+- the browser review is based on the selected file list and cannot predict
+  destination conflicts before the receiver checks its filesystem.
 
 Not yet implemented: packaged native desktop shells, installers/updaters/tray
 integration, buildable Android/iOS/iPadOS/macOS clients, native share sheets or

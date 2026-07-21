@@ -20,6 +20,12 @@
 - Home, verified pairing, identity-aware Devices, and persistent Settings
   experiences in the embedded React application.
 - A cryptographically real two-device development and CI verification flow.
+- A versioned first-run privacy policy whose acceptance controls discovery,
+  pairing, transfer workers, and peer protocol access in the backend.
+- Separate operating-system hostname and editable SyncSpace display-name
+  metadata, with live mDNS refresh and stable trust identities.
+- A deliberate send-review step with add/remove/clear controls, folder
+  summaries, and executable-file warnings before browser staging begins.
 
 ### Changed
 
@@ -31,9 +37,18 @@
   and export; failure simulators remain internal test fixtures.
 - Documentation now describes exact startup/use commands and distinguishes the
   runnable shared product from unimplemented native platform clients.
+- The embedded interface now uses task-focused, plain-language screens and a
+  restrained desktop-utility visual system instead of marketing-style panels.
+- Failed transfers are part of history and are removed by Clear history along
+  with completed and cancelled records; received files remain untouched.
+- New installs save incoming files under `Downloads/SyncSpace`, and system
+  notifications that can contain filenames are opt-in.
 
 ### Security
 
 - Private keys and pairing shared credentials are excluded from public JSON.
 - Offer timestamps/nonces and pairing proof nonces are checked for replay.
 - Cross-origin requests from a different localhost port are rejected.
+- Before the current privacy policy is accepted, local transfer/pairing
+  mutations and every peer-facing route return a clear denial, while the local
+  policy, settings, identity, health, and frontend remain available.

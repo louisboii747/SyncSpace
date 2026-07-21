@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cleanRelativePath, formatBytes, progressPercent, topLevelRoots } from './utils'
+import { cleanRelativePath, formatBytes, isPotentiallyExecutable, isTerminal, progressPercent, topLevelRoots } from './utils'
 import type { LocalFile, Transfer } from './types'
 
 describe('transfer presentation helpers', () => {
@@ -17,5 +17,12 @@ describe('transfer presentation helpers', () => {
     ] as LocalFile[]
     expect(topLevelRoots(values)).toEqual(['project', 'notes.txt'])
     expect(cleanRelativePath('../project\\readme.md')).toBe('project/readme.md')
+  })
+
+  it('keeps failed transfers in history and identifies executable content', () => {
+    expect(isTerminal({ status: 'Failed' } as Transfer)).toBe(true)
+    expect(isTerminal({ status: 'Sending' } as Transfer)).toBe(false)
+    expect(isPotentiallyExecutable('tools/SETUP.PS1')).toBe(true)
+    expect(isPotentiallyExecutable('notes/setup.txt')).toBe(false)
   })
 })

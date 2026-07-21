@@ -32,6 +32,7 @@ type RouterConfig struct {
 	Diagnostics     *diagnostics.Service
 	Simulator       SimulatorService
 	Settings        *settings.Store
+	SettingsChanged func(settings.Values)
 	Frontend        http.Handler
 	Logger          *slog.Logger
 }
@@ -44,7 +45,7 @@ func NewRouter(config RouterConfig) *gin.Engine {
 	}
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
-	router.Use(requestLogger(logger), recovery(logger))
+	router.Use(requestLogger(logger), recovery(logger), privacyGate(config.Settings))
 
 	router.GET("/devices", localOnly(), func(c *gin.Context) {
 		c.JSON(http.StatusOK, config.Discovery.Devices())
@@ -59,10 +60,10 @@ func NewRouter(config RouterConfig) *gin.Engine {
 	router.GET("/ws/discovery", localOnly(), config.DiscoverySocket)
 	registerPairingRoutes(router, config.Pairing, config.PairingSocket, logger)
 	if config.Transfer != nil {
-		registerTransferRoutes(router, config.Transfer, config.TransferSocket, logger)
+		registerTransferRoutes(router, config.Transfer, config.TransferSocket, config.Settings, logger)
 	}
 	registerDiagnosticsRoutes(router, config.Diagnostics, config.Simulator, config.Pairing)
-	registerSettingsRoutes(router, config.Settings)
+	registerSettingsRoutes(router, config.Settings, config.SettingsChanged)
 	router.NoRoute(func(c *gin.Context) {
 		if strings.HasPrefix(c.Request.URL.Path, "/api/v1/") && !c.GetBool("syncspace_api_reroute") {
 			if !isLoopbackRequest(c.Request.RemoteAddr) {
@@ -89,6 +90,29 @@ func NewRouter(config RouterConfig) *gin.Engine {
 		gin.WrapH(config.Frontend)(c)
 	})
 	return router
+}
+
+// privacyGate keeps all peer-facing pairing and transfer routes closed until
+// the current policy has been accepted. The local UI and management API remain
+// available so the policy can be read and accepted safely.
+func privacyGate(store *settings.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if store != nil && !store.PrivacyAccepted() {
+			path := strings.TrimPrefix(c.Request.URL.Path, "/api/v1")
+			apiRequest := strings.HasPrefix(c.Request.URL.Path, "/api/v1/") || strings.HasPrefix(path, "/v1/") ||
+				path == "/devices" || strings.HasPrefix(path, "/discovery/") || strings.HasPrefix(path, "/pairing/") ||
+				path == "/transfers" || strings.HasPrefix(path, "/transfers/") || strings.HasPrefix(path, "/ws/") ||
+				path == "/settings" || strings.HasPrefix(path, "/settings/") || path == "/privacy-policy" || strings.HasPrefix(path, "/privacy-policy/") ||
+				strings.HasPrefix(path, "/diagnostics") || strings.HasPrefix(path, "/dev/")
+			allowed := (c.Request.Method == http.MethodGet && (path == "/privacy-policy" || path == "/settings" || path == "/device/self" || path == "/health")) ||
+				(c.Request.Method == http.MethodPost && path == "/privacy-policy/accept")
+			if apiRequest && !allowed {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "accept the current privacy policy before using discovery, pairing, or transfers"})
+				return
+			}
+		}
+		c.Next()
+	}
 }
 
 func requestLogger(logger *slog.Logger) gin.HandlerFunc {

@@ -1,4 +1,17 @@
-import type { ConflictPolicy, Device, Diagnostics, LocalFile, PairingDecision, PairingRequest, Settings, Transfer, TransferEvent, TrustedDevice, UploadProgress } from './types'
+import type {
+	ConflictPolicy,
+	Device,
+	Diagnostics,
+	LocalFile,
+	PairingDecision,
+	PairingRequest,
+	PrivacyPolicy,
+	Settings,
+	Transfer,
+	TransferEvent,
+	TrustedDevice,
+	UploadProgress,
+} from './types'
 
 const API = '/api/v1'
 
@@ -26,7 +39,13 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
+	self: () => request<Device>(`${API}/device/self`),
 	devices: () => request<Device[]>(`${API}/devices`),
+	privacyPolicy: () => request<PrivacyPolicy>(`${API}/privacy-policy`),
+	acceptPrivacyPolicy: (version: string) => request<PrivacyPolicy>(`${API}/privacy-policy/accept`, {
+		method: 'POST',
+		body: JSON.stringify({ version }),
+	}),
 	trustedDevices: () => request<TrustedDevice[]>(`${API}/pairing/trusted-devices`),
 	pairingRequests: () => request<PairingRequest[]>(`${API}/pairing/requests`),
 	transfers: () => request<Transfer[]>(`${API}/transfers`),

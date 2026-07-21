@@ -1,7 +1,10 @@
 import type { LocalFile, Transfer, TransferStatus } from './types'
 
-const terminalStatuses = new Set<TransferStatus>(['Completed', 'Cancelled'])
+const terminalStatuses = new Set<TransferStatus>(['Completed', 'Cancelled', 'Failed'])
 const activeStatuses = new Set<TransferStatus>(['Preparing', 'Connecting', 'Negotiating', 'Sending', 'Receiving', 'Resuming', 'Verifying'])
+const executableExtensions = new Set([
+  '.exe', '.msi', '.bat', '.cmd', '.ps1', '.sh', '.app', '.apk', '.jar', '.scr', '.com',
+])
 
 export function isTerminal(transfer: Transfer): boolean {
   return terminalStatuses.has(transfer.status)
@@ -40,6 +43,11 @@ export function topLevelRoots(files: LocalFile[]): string[] {
 
 export function cleanRelativePath(path: string): string {
   return path.replaceAll('\\', '/').split('/').filter((part) => part && part !== '.' && part !== '..').join('/')
+}
+
+export function isPotentiallyExecutable(path: string): boolean {
+  const normalized = path.toLowerCase()
+  return [...executableExtensions].some((extension) => normalized.endsWith(extension))
 }
 
 export function statusTone(status: TransferStatus): 'blue' | 'green' | 'amber' | 'red' | 'muted' {

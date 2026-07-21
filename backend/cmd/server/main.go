@@ -61,6 +61,19 @@ func run(logger *slog.Logger, logBuffer *diagnostics.LogBuffer) error {
 	if err != nil {
 		return fmt.Errorf("load device identity: %w", err)
 	}
+	settingsStore, err := settings.NewStore(filepath.Join(config.dataDirectory, "settings.json"))
+	if err != nil {
+		return fmt.Errorf("load settings: %w", err)
+	}
+	preferences := settingsStore.Get()
+	if strings.TrimSpace(preferences.DeviceName) == "" {
+		preferences.DeviceName = identity.Name
+		preferences, err = settingsStore.Update(preferences)
+		if err != nil {
+			return fmt.Errorf("initialise device display name: %w", err)
+		}
+	}
+	identity.Name = preferences.DeviceName
 	databasePath := filepath.Join(config.dataDirectory, "syncspace.db")
 	database, err := sql.Open("sqlite", databasePath)
 	if err != nil {
@@ -153,11 +166,6 @@ func run(logger *slog.Logger, logBuffer *diagnostics.LogBuffer) error {
 	if err != nil {
 		return fmt.Errorf("create transfer service: %w", err)
 	}
-	settingsStore, err := settings.NewStore(filepath.Join(config.dataDirectory, "settings.json"))
-	if err != nil {
-		return fmt.Errorf("load settings: %w", err)
-	}
-
 	discoverySocketHandler := discoveryws.NewHandler(discoveryBroker, peerDirectory, logger)
 	pairingSocketHandler := discoveryws.NewPairingHandler(pairingBroker, pairingService, logger)
 	transferSocketHandler := discoveryws.NewTransferHandler(transferBroker, transferService, logger)
@@ -174,6 +182,18 @@ func run(logger *slog.Logger, logBuffer *diagnostics.LogBuffer) error {
 	if err != nil {
 		return fmt.Errorf("create diagnostics service: %w", err)
 	}
+	applySettings := func(values settings.Values) {
+		name := strings.TrimSpace(values.DeviceName)
+		if name == "" {
+			return
+		}
+		if err := discoveryService.SetDisplayName(name); err != nil {
+			logger.Warn("Unable to apply device display name", "error", err)
+			return
+		}
+		pairingService.SetDisplayName(name)
+		transferService.SetDisplayName(name)
+	}
 	router := api.NewRouter(api.RouterConfig{
 		Discovery:       peerDirectory,
 		DiscoverySocket: discoverySocketHandler.Serve,
@@ -184,6 +204,7 @@ func run(logger *slog.Logger, logBuffer *diagnostics.LogBuffer) error {
 		Diagnostics:     diagnosticsService,
 		Simulator:       peerDirectory,
 		Settings:        settingsStore,
+		SettingsChanged: applySettings,
 		Frontend:        frontend.Handler(),
 		Logger:          logger,
 	})
@@ -199,9 +220,7 @@ func run(logger *slog.Logger, logBuffer *diagnostics.LogBuffer) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	discoveryRunning.Store(true)
-	go func() { discoveryService.Run(ctx); discoveryRunning.Store(false) }()
-	go transferService.Run(ctx)
+	go superviseRuntime(ctx, discoveryService, transferService, settingsStore, &discoveryRunning)
 
 	serveResult := make(chan error, 2)
 	go func() {
@@ -241,6 +260,63 @@ func run(logger *slog.Logger, logBuffer *diagnostics.LogBuffer) error {
 	}
 	logger.Info("Server stopped gracefully")
 	return nil
+}
+
+func superviseRuntime(ctx context.Context, discoveryService *discovery.Service, transferService *transfer.Service, preferences *settings.Store, discoveryRunning *atomic.Bool) {
+	var discoveryCancel context.CancelFunc
+	var transferCancel context.CancelFunc
+	var discoveryDone <-chan struct{}
+	var transferDone <-chan struct{}
+	stopDiscovery := func() {
+		if discoveryCancel != nil {
+			discoveryCancel()
+			<-discoveryDone
+			discoveryCancel, discoveryDone = nil, nil
+		}
+		discoveryRunning.Store(false)
+	}
+	stopTransfers := func() {
+		if transferCancel != nil {
+			transferCancel()
+			<-transferDone
+			transferCancel, transferDone = nil, nil
+		}
+	}
+	defer stopDiscovery()
+	defer stopTransfers()
+
+	for {
+		values := preferences.Get()
+		accepted := preferences.PrivacyAccepted()
+		if accepted && transferCancel == nil {
+			serviceContext, cancel := context.WithCancel(ctx)
+			done := make(chan struct{})
+			transferCancel, transferDone = cancel, done
+			go func() { transferService.Run(serviceContext); close(done) }()
+		} else if !accepted {
+			stopTransfers()
+		}
+		if accepted && values.Discoverable && discoveryCancel == nil {
+			serviceContext, cancel := context.WithCancel(ctx)
+			done := make(chan struct{})
+			discoveryCancel, discoveryDone = cancel, done
+			discoveryRunning.Store(true)
+			go func() { discoveryService.Run(serviceContext); close(done) }()
+		} else if (!accepted || !values.Discoverable) && discoveryCancel != nil {
+			stopDiscovery()
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-preferences.Changes():
+			continue
+		case <-discoveryDone:
+			discoveryCancel, discoveryDone = nil, nil
+			discoveryRunning.Store(false)
+		case <-transferDone:
+			transferCancel, transferDone = nil, nil
+		}
+	}
 }
 
 type serverConfig struct {

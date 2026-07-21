@@ -101,10 +101,18 @@ func TestServiceRefreshRestartsDiscoveryAndFindsPeer(t *testing.T) {
 	if firstAdvertisement.InterfaceName == "" {
 		t.Fatal("mDNS advertisement did not use the selected interface")
 	}
+	if identity.Hostname != "" && !containsTXT(firstAdvertisement.Text, "hostname="+identity.Hostname) {
+		t.Fatalf("mDNS advertisement did not include hostname: %#v", firstAdvertisement.Text)
+	}
 	waitForDevice(t, service, peerID)
 
-	service.Refresh()
-	waitForAdvertisement(t, mdns.advertised)
+	if err := service.SetDisplayName("Friendly local name"); err != nil {
+		t.Fatal(err)
+	}
+	updatedAdvertisement := waitForAdvertisement(t, mdns.advertised)
+	if !containsTXT(updatedAdvertisement.Text, "name=Friendly local name") || service.Self().Name != "Friendly local name" {
+		t.Fatalf("display name was not refreshed: advertisement=%#v self=%#v", updatedAdvertisement.Text, service.Self())
+	}
 	cancel()
 	select {
 	case <-done:
@@ -113,14 +121,26 @@ func TestServiceRefreshRestartsDiscoveryAndFindsPeer(t *testing.T) {
 	}
 }
 
-func TestParseAdvertisementRejectsUnsupportedProtocol(t *testing.T) {
-	_, err := parseAdvertisement(Advertisement{
+func containsTXT(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func TestParseAdvertisementKeepsUnsupportedProtocolVisibleButDisabled(t *testing.T) {
+	device, err := parseAdvertisement(Advertisement{
 		Port: 8384,
-		Text: []string{"protocol=2"},
+		Text: []string{"protocol=2", "id=" + uuid.NewString(), "name=Older SyncSpace", "type=desktop", "platform=windows", "version=0.8.0", "transfer=true", "transfer_protocol=1", "pairing=true"},
 		IPv4: []net.IP{net.ParseIP("192.168.1.2")},
 	})
-	if err == nil {
-		t.Fatal("expected unsupported protocol error")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if device.TransferCapability || device.PairingAvailable || device.SupportedProtocolVersion != 0 {
+		t.Fatalf("incompatible device was not disabled: %#v", device)
 	}
 }
 

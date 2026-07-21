@@ -16,10 +16,13 @@ using the pairing-derived shared key. The receiver rejects skewed timestamps,
 reused nonces, bad MACs, blocked/untrusted devices, identity-key mismatches, and
 source IPs that do not match current discovery.
 
-The offer includes sender/receiver IDs and names, transfer UUID, protocol
-version, negotiated chunk/compression settings, total size, bearer credential,
-and a file/directory manifest. Regular files include a UUID, portable relative
-path, size, SHA-256, chunk size, and chunk count.
+The offer includes the sender device ID and display name, optional sender
+hostname and platform presentation fields, transfer UUID, protocol version,
+negotiated chunk/compression settings, total size, bearer credential, and a
+file/directory manifest. Regular files include a UUID, portable relative path,
+size, SHA-256, chunk size, and chunk count. Hostname/platform remain optional
+within protocol v1 so older peers and stored offers continue to decode; they are
+display context, not authentication inputs.
 
 The receiver persists an approval-required session. Repeating a valid identical
 offer is idempotent. A changed offer under the same ID is rejected.

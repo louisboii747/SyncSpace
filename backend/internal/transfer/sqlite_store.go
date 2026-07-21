@@ -43,12 +43,13 @@ func (s *SQLiteStore) SaveTransfer(ctx context.Context, transfer Transfer) error
 	}
 	defer tx.Rollback()
 	_, err = tx.ExecContext(ctx, `INSERT INTO transfers (
-		id,direction,device_id,device_name,remote_address,filename,path,source_paths,size,checksum,
+		id,direction,device_id,device_name,device_hostname,device_platform,remote_address,filename,path,source_paths,size,checksum,
 		status,progress,speed,eta_seconds,started_at,finished_at,created_at,updated_at,error,attempts,
 		priority,approved,approval_required,conflict_policy,chunk_size,compression,protocol_version,session_token,session_token_hash)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET direction=excluded.direction,device_id=excluded.device_id,
-		device_name=excluded.device_name,remote_address=excluded.remote_address,filename=excluded.filename,
+		device_name=excluded.device_name,device_hostname=excluded.device_hostname,device_platform=excluded.device_platform,
+		remote_address=excluded.remote_address,filename=excluded.filename,
 		path=excluded.path,source_paths=excluded.source_paths,size=excluded.size,checksum=excluded.checksum,
 		status=excluded.status,progress=excluded.progress,speed=excluded.speed,eta_seconds=excluded.eta_seconds,
 		started_at=excluded.started_at,finished_at=excluded.finished_at,updated_at=excluded.updated_at,
@@ -56,7 +57,8 @@ func (s *SQLiteStore) SaveTransfer(ctx context.Context, transfer Transfer) error
 		approval_required=excluded.approval_required,conflict_policy=excluded.conflict_policy,
 		chunk_size=excluded.chunk_size,compression=excluded.compression,protocol_version=excluded.protocol_version,
 		session_token=excluded.session_token,session_token_hash=excluded.session_token_hash`,
-		transfer.ID, transfer.Direction, transfer.DeviceID, transfer.DeviceName, transfer.RemoteAddress,
+		transfer.ID, transfer.Direction, transfer.DeviceID, transfer.DeviceName, transfer.DeviceHostname,
+		transfer.DevicePlatform, transfer.RemoteAddress,
 		transfer.Filename, transfer.Path, string(paths), transfer.Size, transfer.Checksum, transfer.Status,
 		transfer.Progress, transfer.Speed, transfer.ETASeconds, nullableTime(transfer.StartedAt),
 		nullableTime(transfer.FinishedAt), transfer.CreatedAt.UnixMilli(), transfer.UpdatedAt.UnixMilli(),
@@ -155,16 +157,19 @@ func (s *SQLiteStore) DeleteHistory(ctx context.Context) error {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err = tx.ExecContext(ctx, `DELETE FROM chunks WHERE transfer_id IN (SELECT id FROM transfers WHERE status IN (?,?))`, StatusCompleted, StatusCancelled); err != nil {
+	if _, err = tx.ExecContext(ctx, `DELETE FROM chunks WHERE transfer_id IN (SELECT id FROM transfers WHERE status IN (?,?,?))`, StatusCompleted, StatusCancelled, StatusFailed); err != nil {
 		return fmt.Errorf("delete history chunks: %w", err)
 	}
-	if _, err = tx.ExecContext(ctx, `DELETE FROM transfer_files WHERE transfer_id IN (SELECT id FROM transfers WHERE status IN (?,?))`, StatusCompleted, StatusCancelled); err != nil {
+	if _, err = tx.ExecContext(ctx, `DELETE FROM transfer_files WHERE transfer_id IN (SELECT id FROM transfers WHERE status IN (?,?,?))`, StatusCompleted, StatusCancelled, StatusFailed); err != nil {
 		return fmt.Errorf("delete history files: %w", err)
 	}
-	if _, err = tx.ExecContext(ctx, `DELETE FROM transfers WHERE status IN (?,?)`, StatusCompleted, StatusCancelled); err != nil {
+	if _, err = tx.ExecContext(ctx, `DELETE FROM transfers WHERE status IN (?,?,?)`, StatusCompleted, StatusCancelled, StatusFailed); err != nil {
 		return fmt.Errorf("delete transfer history: %w", err)
 	}
 	if _, err = tx.ExecContext(ctx, `DELETE FROM transfer_history`); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `DELETE FROM failed_transfers`); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -203,7 +208,7 @@ func (s *SQLiteStore) ListChunks(ctx context.Context, transferID string) ([]Chun
 	return result, rows.Err()
 }
 
-const transferSelect = `SELECT id,direction,device_id,device_name,remote_address,filename,path,source_paths,size,checksum,status,progress,speed,eta_seconds,started_at,finished_at,created_at,updated_at,error,attempts,priority,approved,approval_required,conflict_policy,chunk_size,compression,protocol_version,session_token,session_token_hash FROM transfers`
+const transferSelect = `SELECT id,direction,device_id,device_name,device_hostname,device_platform,remote_address,filename,path,source_paths,size,checksum,status,progress,speed,eta_seconds,started_at,finished_at,created_at,updated_at,error,attempts,priority,approved,approval_required,conflict_policy,chunk_size,compression,protocol_version,session_token,session_token_hash FROM transfers`
 
 type scanner interface{ Scan(...any) error }
 
@@ -212,7 +217,7 @@ func scanTransfer(row scanner) (Transfer, error) {
 	var paths string
 	var started, finished sql.NullInt64
 	var created, updated int64
-	err := row.Scan(&t.ID, &t.Direction, &t.DeviceID, &t.DeviceName, &t.RemoteAddress, &t.Filename, &t.Path, &paths, &t.Size, &t.Checksum, &t.Status, &t.Progress, &t.Speed, &t.ETASeconds, &started, &finished, &created, &updated, &t.Error, &t.Attempts, &t.Priority, &t.Approved, &t.ApprovalRequired, &t.ConflictPolicy, &t.ChunkSize, &t.Compression, &t.ProtocolVersion, &t.SessionToken, &t.SessionTokenHash)
+	err := row.Scan(&t.ID, &t.Direction, &t.DeviceID, &t.DeviceName, &t.DeviceHostname, &t.DevicePlatform, &t.RemoteAddress, &t.Filename, &t.Path, &paths, &t.Size, &t.Checksum, &t.Status, &t.Progress, &t.Speed, &t.ETASeconds, &started, &finished, &created, &updated, &t.Error, &t.Attempts, &t.Priority, &t.Approved, &t.ApprovalRequired, &t.ConflictPolicy, &t.ChunkSize, &t.Compression, &t.ProtocolVersion, &t.SessionToken, &t.SessionTokenHash)
 	if err != nil {
 		return Transfer{}, err
 	}

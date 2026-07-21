@@ -28,7 +28,7 @@ func TestSQLiteStorePersistsFilesChunksAndStateMirrors(t *testing.T) {
 	store, database := newSQLiteStoreForTest(t)
 	defer database.Close()
 	now := time.Now().UTC().Truncate(time.Millisecond)
-	item := Transfer{ID: "6879059d-38e1-4e4a-9a32-173cb920f7e0", Direction: DirectionOutbound, DeviceID: "771e8205-c766-4087-85a8-18a439fe09f5", Filename: "data.bin", SourcePaths: []string{`C:\data.bin`}, Files: []File{{ID: "e6cd90e9-ebf3-4324-a8a9-50ffb78dd41f", RelativePath: "data.bin", SourcePath: `C:\data.bin`, Size: 8, Checksum: stringsOf('a', 64), ChunkSize: 4, ChunkCount: 2}}, Size: 8, Status: StatusQueued, CreatedAt: now, UpdatedAt: now, Priority: 1, ConflictPolicy: ConflictPrompt, ChunkSize: 4, ProtocolVersion: 1, SessionToken: "secret"}
+	item := Transfer{ID: "6879059d-38e1-4e4a-9a32-173cb920f7e0", Direction: DirectionOutbound, DeviceID: "771e8205-c766-4087-85a8-18a439fe09f5", DeviceName: "Studio Laptop", DeviceHostname: "studio-laptop", DevicePlatform: "linux", Filename: "data.bin", SourcePaths: []string{`C:\data.bin`}, Files: []File{{ID: "e6cd90e9-ebf3-4324-a8a9-50ffb78dd41f", RelativePath: "data.bin", SourcePath: `C:\data.bin`, Size: 8, Checksum: stringsOf('a', 64), ChunkSize: 4, ChunkCount: 2}}, Size: 8, Status: StatusQueued, CreatedAt: now, UpdatedAt: now, Priority: 1, ConflictPolicy: ConflictPrompt, ChunkSize: 4, ProtocolVersion: 1, SessionToken: "secret"}
 	if err := store.SaveTransfer(context.Background(), item); err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func TestSQLiteStorePersistsFilesChunksAndStateMirrors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(loaded.Files) != 1 || loaded.SessionToken != "secret" {
+	if len(loaded.Files) != 1 || loaded.SessionToken != "secret" || loaded.DeviceHostname != "studio-laptop" || loaded.DevicePlatform != "linux" {
 		t.Fatalf("unexpected persisted transfer: %#v", loaded)
 	}
 	assertMirrorCount(t, database, "queued_transfers", 1)
@@ -75,6 +75,34 @@ func TestSQLiteStoreRecoversThousandsInStableQueueOrder(t *testing.T) {
 	if len(items) != 1200 || items[0].Priority != 1 || items[len(items)-1].Priority != 1200 {
 		t.Fatalf("queue ordering or count incorrect: %d", len(items))
 	}
+}
+
+func TestDeleteHistoryClearsAllTerminalRecordsAndKeepsActiveTransfers(t *testing.T) {
+	store, database := newSQLiteStoreForTest(t)
+	defer database.Close()
+	now := time.Now().UTC()
+	statuses := []Status{StatusCompleted, StatusCancelled, StatusFailed, StatusSending}
+	for index, status := range statuses {
+		item := Transfer{ID: uuidFromInt(index + 1), Direction: DirectionOutbound, DeviceID: "771e8205-c766-4087-85a8-18a439fe09f5", Filename: "file", Status: status, CreatedAt: now, UpdatedAt: now, Priority: int64(index), ConflictPolicy: ConflictPrompt, ChunkSize: DefaultChunkSize, ProtocolVersion: 1}
+		if status == StatusFailed {
+			item.Error = "test failure"
+		}
+		if err := store.SaveTransfer(context.Background(), item); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.DeleteHistory(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	items, err := store.ListTransfers(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].Status != StatusSending {
+		t.Fatalf("unexpected remaining transfers: %#v", items)
+	}
+	assertMirrorCount(t, database, "failed_transfers", 0)
+	assertMirrorCount(t, database, "transfer_history", 0)
 }
 
 func assertMirrorCount(t *testing.T, database *sql.DB, table string, want int) {
