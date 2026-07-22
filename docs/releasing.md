@@ -33,16 +33,8 @@ syncspace_1.4.0_amd64.deb
 syncspace_1.4.0_arm64.deb
 syncspace-1.4.0-1.x86_64.rpm
 syncspace-1.4.0-1.aarch64.rpm
-SHA256SUMS
-syncspace-1.4.0-windows-amd64.zip
 syncspace-1.4.0-windows-amd64.exe
-syncspace-1.4.0-windows-amd64-server.exe
-syncspace-1.4.0-windows-amd64-cli.exe
-syncspace-1.4.0-windows-arm64.zip
 syncspace-1.4.0-windows-arm64.exe
-syncspace-1.4.0-windows-arm64-server.exe
-syncspace-1.4.0-windows-arm64-cli.exe
-SHA256SUMS-windows
 ```
 
 Prerelease tags keep the SemVer string inside SyncSpace but use each package
@@ -117,7 +109,6 @@ when a requested tool is missing.
    user would:
 
    ```sh
-   sha256sum --check SHA256SUMS
    gh attestation verify ./syncspace_1.4.0_amd64.deb \
      --repo louisboii747/syncspace
    gh attestation verify ./syncspace-1.4.0-1.x86_64.rpm \
@@ -127,7 +118,7 @@ when a requested tool is missing.
 6. Install one DEB and one RPM on clean supported distributions. Confirm that
    `syncspace` opens one native window without a browser, a second launch
    focuses it, privacy acceptance is required, closing the window stops its
-   companion backend, and uninstall leaves user data intact.
+   embedded backend, and uninstall leaves user data intact.
 
 Do not publish checksums produced before the final asset aggregation. Do not
 replace a file attached to an existing tag: create a new patch release so the
@@ -138,20 +129,14 @@ tag, provenance, package metadata, and checksum remain an auditable unit.
 The `.github/workflows/release-linux.yml` workflow uses least-privilege
 permissions, runs frontend and Go quality gates, builds each package twice to
 detect non-deterministic output, verifies every package, exercises each
-extracted native server over its real health endpoint, creates one GNU-format
-checksum manifest, checks that manifest, and records signed GitHub build-provenance
-attestations before publishing the release assets.
-
-`SHA256SUMS` proves that a downloaded file matches the release manifest. The
-GitHub attestation ties an asset digest to this repository, commit, and Actions
-workflow through Sigstore-backed provenance. They are complementary checks;
-neither should be silently omitted from release documentation.
+extracted native app over its real health endpoint, and records signed GitHub
+build-provenance attestations before publishing only end-user application assets.
 
 ## Windows release hardening
 
 The workflow builds version-stamped x64 and Arm64 PE executables, checks their
-machine type, smoke-tests the x64 packaged runtime, publishes SHA-256 checksums,
-and records GitHub provenance. It does not yet Authenticode-sign the binaries or
+machine type, smoke-tests the packaged runtime, and records GitHub provenance.
+It does not yet Authenticode-sign the binaries or
 create an installer. Add those only with protected signing credentials and a
 tested upgrade/uninstall path; never imply that the current portable files are
 signed.

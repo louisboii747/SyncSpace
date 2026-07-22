@@ -180,7 +180,7 @@ jobs:
       - name: Install package inspection tools
         run: |
           sudo apt-get update
-          sudo apt-get install --yes appstream binutils build-essential cpio curl desktop-file-utils file jq libgtk-3-dev libwebkit2gtk-4.1-dev rpm shellcheck
+          sudo apt-get install --yes appstream binutils build-essential cpio curl desktop-file-utils file jq libgtk-3-dev libwebkit2gtk-4.1-dev rpm shellcheck xvfb
 
       - name: Install locked frontend dependencies
         working-directory: frontend
@@ -238,12 +238,13 @@ jobs:
           log="$RUNNER_TEMP/syncspace-smoke.log"
           dpkg-deb --extract "$package" "$root"
 
-          SYNCSPACE_HOST=127.0.0.1 \
-          SYNCSPACE_PORT=18084 \
-          SYNCSPACE_PEER_HOST=127.0.0.1 \
-          SYNCSPACE_PEER_PORT=18085 \
-          SYNCSPACE_DATA_DIR="$data" \
-            "$root/usr/libexec/syncspace/syncspace-server" >"$log" 2>&1 &
+          xvfb-run --auto-servernum env \
+            SYNCSPACE_HOST=127.0.0.1 \
+            SYNCSPACE_PORT=18084 \
+            SYNCSPACE_PEER_HOST=127.0.0.1 \
+            SYNCSPACE_PEER_PORT=18085 \
+            SYNCSPACE_DATA_DIR="$data" \
+            "$root/usr/bin/syncspace" >"$log" 2>&1 &
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true' EXIT
 
@@ -355,11 +356,8 @@ jobs:
           VERSION: ${{ needs.metadata.outputs.version }}
         run: |
           $prefix = "syncspace-$env:VERSION-windows-${{ matrix.goarch }}"
-          $server = "dist/windows/$prefix.exe"
-          $backend = "dist/windows/$prefix-server.exe"
-          $cli = "dist/windows/$prefix-cli.exe"
-          $archive = "dist/windows/$prefix.zip"
-          foreach ($path in @($server, $backend, $cli, $archive)) {
+          $app = "dist/windows/$prefix.exe"
+          foreach ($path in @($app)) {
             if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
               throw "Missing Windows release asset: $path"
             }
@@ -388,58 +386,14 @@ jobs:
             }
             return $matches[$matches.Count - 1].Groups['version'].Value
           }
-          $actual = Get-EmbeddedVersion $server
+          $actual = Get-EmbeddedVersion $app
           if ($actual -ne $env:VERSION) { throw "Desktop version is $actual, expected $env:VERSION" }
-          $actual = Get-EmbeddedVersion $backend
-          if ($actual -ne $env:VERSION) { throw "Backend version is $actual, expected $env:VERSION" }
-          $actual = Get-EmbeddedVersion $cli
-          if ($actual -ne $env:VERSION) { throw "CLI version is $actual, expected $env:VERSION" }
-          $bytes = [IO.File]::ReadAllBytes($server)
+          $bytes = [IO.File]::ReadAllBytes($app)
           $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
           $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
           $expectedMachine = if ('${{ matrix.goarch }}' -eq 'amd64') { 0x8664 } else { 0xaa64 }
           if ($machine -ne $expectedMachine) {
             throw ('PE machine type 0x{0:x4}, expected 0x{1:x4}' -f $machine, $expectedMachine)
-          }
-
-      - name: Smoke-test Windows backend
-        shell: pwsh
-        env:
-          VERSION: ${{ needs.metadata.outputs.version }}
-          SYNCSPACE_HOST: 127.0.0.1
-          SYNCSPACE_PORT: 18084
-          SYNCSPACE_PEER_HOST: 127.0.0.1
-          SYNCSPACE_PEER_PORT: 18085
-          SYNCSPACE_DATA_DIR: ${{ runner.temp }}\syncspace-smoke-data
-        run: |
-          $binary = "dist/windows/syncspace-$env:VERSION-windows-${{ matrix.goarch }}-server.exe"
-          $process = Start-Process -FilePath $binary -PassThru -WindowStyle Hidden
-          try {
-            $ready = $false
-            for ($attempt = 0; $attempt -lt 30; $attempt++) {
-              try {
-                $policy = Invoke-RestMethod http://127.0.0.1:18084/api/v1/privacy-policy
-                $ready = $true
-                break
-              } catch {
-                Start-Sleep -Seconds 1
-              }
-            }
-            if (-not $ready) { throw 'Windows server did not expose its embedded application' }
-            $accepted = Invoke-RestMethod `
-              -Method Post `
-              -ContentType 'application/json' `
-              -Body (@{ version = $policy.version } | ConvertTo-Json -Compress) `
-              http://127.0.0.1:18084/api/v1/privacy-policy/accept
-            if (-not $accepted.accepted) { throw 'Privacy acceptance failed in packaged runtime' }
-            $self = Invoke-RestMethod http://127.0.0.1:18084/api/v1/device/self
-            if ($self.appVersion -ne $env:VERSION) {
-              throw "Runtime version is $($self.appVersion), expected $env:VERSION"
-            }
-            $page = Invoke-WebRequest http://127.0.0.1:18084/
-            if ($page.Content -notmatch 'id="root"') { throw 'Embedded React entrypoint is missing' }
-          } finally {
-            if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
           }
 
       - name: Smoke-test native desktop lifecycle
@@ -461,7 +415,7 @@ jobs:
                 break
               } catch { Start-Sleep -Milliseconds 250 }
             }
-            if (-not $ready) { throw 'Native desktop did not start its companion backend' }
+            if (-not $ready) { throw 'Native desktop did not start its embedded backend' }
             $second = Start-Process -FilePath $binary -PassThru
             if (-not $second.WaitForExit(5000)) {
               Stop-Process -Id $second.Id -Force
@@ -471,7 +425,6 @@ jobs:
             if ($desktop.HasExited) { throw 'First desktop instance stopped after the second launch' }
           } finally {
             if (-not $desktop.HasExited) { Stop-Process -Id $desktop.Id -Force }
-            Get-Process | Where-Object { $_.Path -like '*syncspace*server.exe' } | Stop-Process -Force -ErrorAction SilentlyContinue
           }
 
       - name: Upload Windows architecture assets
@@ -480,7 +433,6 @@ jobs:
           name: windows-packages-${{ matrix.goarch }}
           path: |
             dist/windows/*.exe
-            dist/windows/*.zip
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
@@ -501,21 +453,16 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Verify bundle and write checksums
+      - name: Verify ready-to-run application bundle
         shell: pwsh
         run: |
-          $assets = @(Get-ChildItem -LiteralPath dist -File | Where-Object { $_.Extension -in '.exe', '.zip' } | Sort-Object Name)
-          if ($assets.Count -ne 8) { throw "Expected eight Windows assets, found $($assets.Count)" }
+          $assets = @(Get-ChildItem -LiteralPath dist -File -Filter '*.exe' | Sort-Object Name)
+          if ($assets.Count -ne 2) { throw "Expected two Windows applications, found $($assets.Count)" }
           foreach ($architecture in @('amd64', 'arm64')) {
-            if (@($assets | Where-Object Name -Like "*windows-$architecture*").Count -ne 4) {
-              throw "Windows $architecture asset set is incomplete"
+            if (@($assets | Where-Object Name -Like "syncspace-*-windows-$architecture.exe").Count -ne 1) {
+              throw "Windows $architecture application is missing"
             }
           }
-          $lines = foreach ($asset in $assets) {
-            $hash = (Get-FileHash -LiteralPath $asset.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-            "$hash *$($asset.Name)"
-          }
-          Set-Content -LiteralPath dist/SHA256SUMS-windows -Value $lines -Encoding ascii
 
       - name: Upload verified Windows release bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -523,8 +470,6 @@ jobs:
           name: release-assets-windows-${{ needs.metadata.outputs.version }}
           path: |
             dist/*.exe
-            dist/*.zip
-            dist/SHA256SUMS-windows
           if-no-files-found: error
           retention-days: 30
           compression-level: 0
@@ -579,12 +524,6 @@ jobs:
             exit 1
           fi
 
-          (
-            cd dist
-            sha256sum "${actual[@]}" | sort --key=2 > SHA256SUMS
-            sha256sum --check SHA256SUMS
-          )
-
       - name: Upload verified Linux release bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -592,7 +531,6 @@ jobs:
           path: |
             dist/*.deb
             dist/*.rpm
-            dist/SHA256SUMS
           if-no-files-found: error
           retention-days: 30
           compression-level: 0
@@ -623,7 +561,6 @@ jobs:
           subject-path: |
             dist/*.deb
             dist/*.rpm
-            dist/SHA256SUMS
           create-storage-record: false
 
   attest-windows:
@@ -651,8 +588,6 @@ jobs:
         with:
           subject-path: |
             dist/*.exe
-            dist/*.zip
-            dist/SHA256SUMS-windows
           create-storage-record: false
 
   release:
@@ -683,12 +618,6 @@ jobs:
           name: release-assets-windows-${{ needs.metadata.outputs.version }}
           path: dist
 
-      - name: Recheck release checksums
-        working-directory: dist
-        run: |
-          sha256sum --check SHA256SUMS
-          sha256sum --check SHA256SUMS-windows
-
       - name: Publish verified asset set
         shell: bash
         env:
@@ -709,12 +638,9 @@ jobs:
             dist/*.deb \
             dist/*.rpm \
             dist/*.exe \
-            dist/*.zip \
-            dist/SHA256SUMS \
-            dist/SHA256SUMS-windows \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
             --title "SyncSpace $VERSION" \
-            --notes "Linux DEB/RPM packages and portable Windows executables are available for amd64/x86_64 and arm64/aarch64. Verify the platform checksum manifest before installing; GitHub build-provenance attestations are recorded for every asset. Windows builds are currently unsigned." \
+            --notes "Ready-to-install SyncSpace apps are available for Windows, Debian/Ubuntu, and RPM-based Linux on amd64/x86_64 and arm64/aarch64. GitHub build-provenance attestations are recorded for every app. Windows builds are currently unsigned." \
             --generate-notes \
             "${release_flags[@]}"

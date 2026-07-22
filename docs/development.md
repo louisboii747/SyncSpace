@@ -18,22 +18,20 @@ cd ..
 
 ## Native desktop local run
 
-Build the React assets and place the desktop and companion backend beside each
-other:
+Build the React assets and the self-contained desktop executable:
 
 ```powershell
 cd frontend
 npm run build
 cd ..
-go build -o build/bin/syncspace-server.exe ./backend/cmd/server
 go build -o build/bin/syncspace.exe ./backend/cmd/desktop
 .\build\bin\syncspace.exe
 ```
 
 On Linux omit `.exe` and build the desktop with
-`-tags desktop,production,webkit2_41`. SyncSpace
-opens its own Wails window, starts the companion backend without opening a
-terminal or browser, and stops it when the window exits. The React assets are
+`-tags desktop,production,webkit2_41`. SyncSpace opens its own Wails window,
+starts its in-process backend without opening a terminal or browser, and stops
+it when the window exits. The React assets are
 loaded from the desktop binary. Its loopback management API remains private;
 the separate TLS 1.3 peer listener uses `0.0.0.0:8385` by default.
 

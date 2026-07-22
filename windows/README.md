@@ -1,32 +1,25 @@
 # SyncSpace for Windows
 
-GitHub Releases provide portable builds for Windows x64 (`amd64`) and Windows
-on Arm (`arm64`). Download the ZIP matching the computer, extract it, and run
-`syncspace.exe`. The same executable is also published separately for users
-who do not need the CLI or licence files.
+GitHub Releases provide one ready-to-run `.exe` for Windows x64 (`amd64`) and
+one for Windows on Arm (`arm64`). Download the matching executable and run it.
 
-`syncspace.exe` is the native Wails window and contains the production React
-assets. It owns the adjacent `syncspace-server.exe` companion process, shuts it
-down with the window, and focuses the existing window when launched twice. It
+`syncspace.exe` is the complete application: the native Wails window,
+production React assets, and Go transfer backend are linked into the same file.
+It shuts down the in-process runtime with the window and focuses the existing window when launched twice. It
 stores mutable state in `%APPDATA%\SyncSpace`, protects the device identity key
 with user-scoped Windows DPAPI, binds the management UI to loopback, and exposes
 only the encrypted peer-transfer listener to the LAN. Windows may ask for
 firewall permission for local-network discovery and incoming transfers.
 
-The portable build is currently unsigned. Windows SmartScreen may therefore
-show an unrecognised-app warning. Verify the downloaded file against
-`SHA256SUMS-windows` and, when using GitHub CLI, its build provenance:
+The application is currently unsigned. Windows SmartScreen may therefore show
+an unrecognised-app warning. Its GitHub build provenance can be checked with:
 
 ```powershell
-Get-FileHash .\syncspace-VERSION-windows-amd64.zip -Algorithm SHA256
-gh attestation verify .\syncspace-VERSION-windows-amd64.zip --repo louisboii747/syncspace
+gh attestation verify .\syncspace-VERSION-windows-amd64.exe --repo louisboii747/syncspace
 ```
 
-Keep `syncspace.exe` and `syncspace-server.exe` together when using standalone
-downloads; the portable ZIP already has the correct layout. Run
-`syncspace.exe --version` or `syncspace-cli.exe --version` to confirm the
-embedded release version. The CLI contains diagnostics and local development
-commands; most users only need `syncspace.exe`.
+The downloaded `.exe` is the whole app; there is no companion backend or CLI to
+place beside it. Run it with `--version` to confirm the embedded release version.
 
 ## Build locally
 

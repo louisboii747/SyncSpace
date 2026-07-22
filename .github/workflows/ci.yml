@@ -188,8 +188,6 @@ jobs:
             return $match.Groups['version'].Value
           }
           if ((Get-EmbeddedVersion ./dist/windows/syncspace-0.0.0-windows-amd64.exe) -ne '0.0.0') { throw 'Desktop version mismatch' }
-          if ((Get-EmbeddedVersion ./dist/windows/syncspace-0.0.0-windows-amd64-server.exe) -ne '0.0.0') { throw 'Backend version mismatch' }
-          if ((Get-EmbeddedVersion ./dist/windows/syncspace-0.0.0-windows-amd64-cli.exe) -ne '0.0.0') { throw 'CLI version mismatch' }
 
       - name: Smoke-test native window lifecycle
         shell: pwsh
@@ -211,5 +209,4 @@ jobs:
             if (-not $ready) { throw 'Native desktop did not start its backend' }
           } finally {
             if (-not $desktop.HasExited) { Stop-Process -Id $desktop.Id -Force }
-            Get-Process | Where-Object { $_.Path -like '*syncspace*server.exe' } | Stop-Process -Force -ErrorAction SilentlyContinue
           }

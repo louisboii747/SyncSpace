@@ -62,7 +62,7 @@ func main() {
 type DesktopHost struct {
 	ctx     context.Context
 	mu      sync.RWMutex
-	backend *backendProcess
+	backend *backendRuntime
 	err     error
 }
 

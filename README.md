@@ -14,26 +14,22 @@ Node.js.
 
 ## Install a Windows release
 
-GitHub Releases provide portable Windows builds for x64 and Arm64. Download and
-extract `syncspace-VERSION-windows-ARCH.zip`, then run `syncspace.exe`. The
-standalone server and CLI executables are also attached separately. Windows
-builds are currently unsigned, so verify `SHA256SUMS-windows` and the GitHub
-build-provenance attestation before running them. See
+GitHub Releases provide one ready-to-run Windows application for x64 and one
+for Arm64. Download `syncspace-VERSION-windows-ARCH.exe` and run it; there are
+no companion, CLI, or archive assets. Windows builds are currently unsigned,
+so GitHub may show a SmartScreen warning. See
 [SyncSpace for Windows](windows/README.md) for exact commands and limitations.
 
 ## Install a Linux release
 
 GitHub Releases provide native DEB and RPM packages for x86-64 and 64-bit ARM.
-Download the package for the computer together with `SHA256SUMS`, verify its
-checksum and GitHub build attestation, then install it with `apt` or `dnf`.
+Download the package for the computer, then install it with `apt` or `dnf`.
 
 ```sh
 # Debian or Ubuntu, x86-64 example
-sha256sum --check --ignore-missing SHA256SUMS
 sudo apt install ./syncspace_VERSION_amd64.deb
 
 # Fedora or RHEL family, x86-64 example
-sha256sum --check --ignore-missing SHA256SUMS
 sudo dnf install ./syncspace-VERSION-1.x86_64.rpm
 ```
 
@@ -51,15 +47,14 @@ repository, so upgrades are downloaded and verified explicitly.
 
 Source-build requirements: Go 1.26.4 or newer, Node.js 22 or newer, and npm.
 
-From the repository root, build the frontend and the companion backend, then
-start the native desktop application:
+From the repository root, build the frontend, then build and start the
+self-contained native desktop application:
 
 ```powershell
 cd frontend
 npm ci
 npm run build
 cd ..
-go build -o build/bin/syncspace-server.exe ./backend/cmd/server
 go build -o build/bin/syncspace.exe ./backend/cmd/desktop
 .\build\bin\syncspace.exe
 ```
@@ -72,6 +67,13 @@ On Linux, omit `.exe`. The desktop window prepares:
 
 Stop it with `Ctrl+C`. On first launch SyncSpace creates a device identity and
 data directory under the operating system's user configuration directory.
+
+## Apple platform foundation
+
+Native SwiftUI foundations for iOS and macOS live in [`apple`](apple/README.md).
+They share API models, async client state, and Bonjour discovery and can be
+edited on Windows. Xcode on macOS is required to generate, sign, simulate, and
+archive the final applications.
 
 ## First launch and privacy
 
@@ -244,8 +246,8 @@ go run ./backend/cmd/syncspace dev verify
 CI repeats the backend tests/vet/build, frontend tests/type-check/build, and the
 two-process encrypted transfer smoke test. Tagged release CI additionally
 builds and inspects both DEB/RPM architectures, verifies the embedded version,
-publishes `SHA256SUMS`, records GitHub build-provenance attestations, and attaches
-the verified artifacts to the matching GitHub Release.
+records GitHub build-provenance attestations, and attaches only ready-to-run or
+ready-to-install applications to the matching GitHub Release.
 
 ## Current scope
 

@@ -53,12 +53,6 @@ try {
             $desktopFlags = "-H windowsgui -s -w -X main.buildVersion=$Version"
             go build -tags 'desktop,production' -trimpath -buildvcs=true -ldflags $desktopFlags -o (Join-Path $releaseDirectory 'syncspace.exe') ./backend/cmd/desktop
             if ($LASTEXITCODE -ne 0) { throw 'SyncSpace desktop build failed' }
-            $serverFlags = "-H windowsgui -s -w -X main.buildVersion=$Version"
-            go build -trimpath -buildvcs=true -ldflags $serverFlags -o (Join-Path $releaseDirectory 'syncspace-server.exe') ./backend/cmd/server
-            if ($LASTEXITCODE -ne 0) { throw 'SyncSpace backend build failed' }
-            $cliFlags = "-s -w -X main.buildVersion=$Version"
-            go build -trimpath -buildvcs=true -ldflags $cliFlags -o (Join-Path $releaseDirectory 'syncspace-cli.exe') ./backend/cmd/syncspace
-            if ($LASTEXITCODE -ne 0) { throw 'syncspace-cli.exe build failed' }
         } finally {
             Pop-Location
         }
@@ -68,14 +62,8 @@ try {
         $env:CGO_ENABLED = $previousCgo
     }
 
-    Copy-Item (Join-Path $repoRoot 'LICENSE') $releaseDirectory
-    Copy-Item (Join-Path $repoRoot 'windows\README.md') (Join-Path $releaseDirectory 'README.txt')
-
     $prefix = "syncspace-$Version-windows-$Architecture"
     Copy-Item (Join-Path $releaseDirectory 'syncspace.exe') (Join-Path $outputRoot "$prefix.exe") -Force
-    Copy-Item (Join-Path $releaseDirectory 'syncspace-server.exe') (Join-Path $outputRoot "$prefix-server.exe") -Force
-    Copy-Item (Join-Path $releaseDirectory 'syncspace-cli.exe') (Join-Path $outputRoot "$prefix-cli.exe") -Force
-    Compress-Archive -Path (Join-Path $releaseDirectory '*') -DestinationPath (Join-Path $outputRoot "$prefix.zip") -CompressionLevel Optimal -Force
 
     Write-Host "Built Windows $Architecture release assets in $outputRoot"
 } finally {

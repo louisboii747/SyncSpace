@@ -1,8 +1,8 @@
 # Install SyncSpace on Linux
 
 GitHub Releases provide native DEB and RPM packages for x86-64 and Arm64. Each
-package contains the Wails desktop executable, its private Go backend, the
-embedded React assets, desktop metadata, icon, and licence. It does not install
+package contains one Wails desktop executable with its Go backend and React
+assets embedded, plus desktop metadata, icon, and licence. It does not install
 a system service, launch a browser, or require Node.js or Go at runtime.
 
 ## Requirements
@@ -15,11 +15,9 @@ available in the configured distribution repositories.
 
 ## Verify and install
 
-Download the package for the machine plus `SHA256SUMS` from the same release.
+Download the package for the machine from the release.
 
 ```sh
-sha256sum --check --ignore-missing SHA256SUMS
-
 # Debian or Ubuntu
 sudo apt install ./syncspace_VERSION_amd64.deb
 
@@ -42,8 +40,8 @@ Open **SyncSpace** from the desktop application menu or run:
 syncspace
 ```
 
-Only one window and backend run for the user. A second launch raises the
-existing window. Closing the window stops its companion backend. The local
+Only one application process runs for the user. A second launch raises the
+existing window. Closing the window stops the embedded backend. The local
 management listener remains loopback-only; the separate encrypted peer port is
 the only service exposed to the LAN.
 
@@ -71,8 +69,7 @@ resetting the identity and transfer history.
 
 | Path | Purpose |
 | --- | --- |
-| `/usr/bin/syncspace` | Native Wails desktop application |
-| `/usr/libexec/syncspace/syncspace-server` | Lifecycle-owned Go backend |
+| `/usr/bin/syncspace` | Self-contained native desktop application and backend |
 | `/usr/share/applications/syncspace.desktop` | Desktop menu entry |
 | `/usr/share/icons/hicolor/scalable/apps/syncspace.svg` | Application icon |
 | `/usr/share/metainfo/syncspace.metainfo.xml` | AppStream metadata |

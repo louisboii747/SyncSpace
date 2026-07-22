@@ -5,7 +5,8 @@ cloud database, relay, or internet fallback in the implemented data path.
 
 ## Runtime topology
 
-The desktop process owns one companion backend process and its two listeners:
+The desktop executable contains the frontend, native shell, and backend runtime
+in one process with two listeners:
 
 ```text
 native Wails window with embedded React assets
@@ -74,9 +75,12 @@ normal server startup never auto-accepts.
   adapters.
 - `frontend`: React/TypeScript management client.
 - `backend/internal/frontend`: compiled asset embedding.
+- `backend/internal/serverapp`: shared two-listener backend composition root.
 - `backend/cmd/desktop`: Wails window, single-instance lock, window-state
-  persistence, and companion-backend lifecycle.
-- `backend/cmd/server`: composition root and two-listener lifecycle.
+  persistence, and in-process backend lifecycle.
+- `backend/cmd/server`: optional headless development entry point.
+- `apple`: shared Swift models, async API boundary, Bonjour discovery, and
+  SwiftUI iOS/macOS application foundations.
 - `backend/cmd/syncspace`: doctor, lab, verification, and diagnostics workflows.
 
 ## Identity and pairing

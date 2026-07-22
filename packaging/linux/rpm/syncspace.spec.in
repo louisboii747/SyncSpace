@@ -26,7 +26,6 @@ tar -xf %{SOURCE0} -C %{buildroot}
 %files
 %license /usr/share/licenses/syncspace/LICENSE
 /usr/bin/syncspace
-/usr/libexec/syncspace/syncspace-server
 /usr/share/applications/syncspace.desktop
 /usr/share/icons/hicolor/scalable/apps/syncspace.svg
 /usr/share/metainfo/syncspace.metainfo.xml

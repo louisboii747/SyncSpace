@@ -28,3 +28,10 @@ frontend/.vite/
 frontend/*.tsbuildinfo
 .tmp/
 .syncspace-dev/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/

@@ -11,9 +11,9 @@ SyncSpace opens a dedicated desktop window for sending files directly between
 trusted devices on the same local network. It does not open a browser, require
 an account, or upload files to a cloud relay.
 .PP
-The desktop process owns a private companion backend for discovery, pairing,
+The desktop executable contains its private backend for discovery, pairing,
 encrypted transfers, settings, and history. Launching SyncSpace again focuses
-the existing window instead of starting another backend.
+the existing window instead of starting another runtime.
 .SH OPTIONS
 .TP
 .B --version
@@ -23,8 +23,8 @@ Print the installed SyncSpace version without opening the window.
 .I $XDG_CONFIG_HOME/SyncSpace
 Default identity, trust database, settings, and transfer working data.
 .TP
-.I $XDG_CACHE_HOME/SyncSpace/logs/desktop-backend.log
-Desktop companion-backend log.
+.I $XDG_CACHE_HOME/SyncSpace/logs/desktop-runtime.log
+Desktop runtime log.
 .TP
 .I $HOME/Downloads/SyncSpace
 Default received-file directory for a new profile.

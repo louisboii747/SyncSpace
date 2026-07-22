@@ -186,17 +186,6 @@ fi
 
 [[ -f "$repo_root/backend/internal/frontend/dist/index.html" ]] || die "embedded frontend is missing; run without --skip-frontend"
 
-server_binary="$work_dir/syncspace-server"
-(
-  cd -- "$repo_root"
-  CGO_ENABLED=0 GOOS=linux GOARCH=$go_arch go build \
-    -trimpath \
-    -buildvcs=false \
-    -ldflags "-s -w -X main.buildVersion=$version" \
-    -o "$server_binary" \
-    ./backend/cmd/server
-)
-
 desktop_binary="$work_dir/syncspace"
 (
   cd -- "$repo_root"
@@ -210,7 +199,6 @@ desktop_binary="$work_dir/syncspace"
 )
 
 stage="$work_dir/stage"
-install -D -m 0755 "$server_binary" "$stage/usr/libexec/syncspace/syncspace-server"
 install -D -m 0755 "$desktop_binary" "$stage/usr/bin/syncspace"
 install -D -m 0644 "$script_dir/assets/syncspace.desktop" "$stage/usr/share/applications/syncspace.desktop"
 install -D -m 0644 "$script_dir/assets/syncspace.svg" "$stage/usr/share/icons/hicolor/scalable/apps/syncspace.svg"

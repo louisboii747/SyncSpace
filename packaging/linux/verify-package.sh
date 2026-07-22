@@ -90,13 +90,11 @@ case "$package" in
 esac
 
 application="$root/usr/bin/syncspace"
-server="$root/usr/libexec/syncspace/syncspace-server"
 desktop="$root/usr/share/applications/syncspace.desktop"
 metainfo="$root/usr/share/metainfo/syncspace.metainfo.xml"
 icon="$root/usr/share/icons/hicolor/scalable/apps/syncspace.svg"
 
 [[ -x $application ]] || die "desktop application is missing or is not executable"
-[[ -x $server ]] || die "server is missing or is not executable"
 [[ -f $desktop ]] || die "desktop entry is missing"
 [[ -f $metainfo ]] || die "AppStream metadata is missing"
 [[ -f $icon ]] || die "desktop icon is missing"
@@ -104,7 +102,6 @@ icon="$root/usr/share/icons/hicolor/scalable/apps/syncspace.svg"
 [[ -f $root/usr/share/man/man1/syncspace.1.gz ]] || die "manual page is missing"
 
 [[ $(stat --format='%a' "$application") == 755 ]] || die "desktop application mode must be 0755"
-[[ $(stat --format='%a' "$server") == 755 ]] || die "server mode must be 0755"
 for regular_file in \
   "$desktop" \
   "$metainfo" \
@@ -123,8 +120,6 @@ else
   version_output='runtime check skipped for foreign architecture'
 fi
 
-actual_machine=$(readelf --file-header "$server" | awk -F: '/^[[:space:]]*Machine:/{ sub(/^[[:space:]]+/, "", $2); print $2; exit }')
-[[ $actual_machine == "$expected_machine" ]] || die "server architecture '$actual_machine' does not match package architecture '$package_arch'"
 desktop_machine=$(readelf --file-header "$application" | awk -F: '/^[[:space:]]*Machine:/{ sub(/^[[:space:]]+/, "", $2); print $2; exit }')
 [[ $desktop_machine == "$expected_machine" ]] || die "desktop architecture '$desktop_machine' does not match package architecture '$package_arch'"
 

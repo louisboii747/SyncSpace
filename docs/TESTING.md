@@ -184,7 +184,7 @@ packaging/linux/verify-package.sh dist/syncspace-1.4.0-1.x86_64.rpm
 Repeat on an ARM64 Linux host for `arm64`, producing an `arm64` DEB and
 `aarch64` RPM, or rely on the release matrix's native ARM64 runner. Verification
 must inspect metadata, version, architecture, payload paths, ownership,
-permissions, native desktop and backend executables, desktop entry, and icon.
+permissions, the self-contained native desktop executable, desktop entry, and icon.
 It must not need to install the package or start a root service.
 
 The tag-triggered `.github/workflows/release-linux.yml` workflow repeats the
@@ -201,7 +201,7 @@ systems and confirm:
 2. the menu entry and `syncspace` open one native window without a browser;
 3. a second launch focuses the existing window and creates no second backend;
 4. privacy acceptance is still required before LAN activity;
-5. closing the window stops its companion backend;
+5. closing the window stops its embedded backend;
 6. installing a newer package preserves identity and transfer state; and
 7. package removal leaves per-user application data and received files intact.
 
