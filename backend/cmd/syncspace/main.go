@@ -34,6 +34,8 @@ const (
 	deviceBID = "00000000-0000-4000-8000-00000000000b"
 )
 
+var buildVersion = "dev"
+
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "syncspace:", err)
@@ -46,6 +48,9 @@ func run(args []string) error {
 		return usage()
 	}
 	switch args[0] {
+	case "version", "--version":
+		fmt.Println(buildVersion)
+		return nil
 	case "doctor":
 		return doctor(args[1:])
 	case "dev":
@@ -64,6 +69,7 @@ func run(args []string) error {
 func usage() error {
 	fmt.Println(`SyncSpace developer CLI
 
+  syncspace-cli --version
   syncspace doctor [--url http://127.0.0.1:8384]
   syncspace dev start [--port-a 8384 --port-b 8385]
   syncspace dev verify [--port-a 8384 --port-b 8385]

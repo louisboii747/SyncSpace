@@ -1,8 +1,9 @@
 # Create a SyncSpace release
 
-This guide is for maintainers publishing the Linux DEB and RPM packages through
-GitHub Releases. The release workflow is the only supported publication path;
-local package builds are useful for inspection but are not official releases.
+This guide is for maintainers publishing Linux DEB/RPM packages and portable
+Windows executables through GitHub Releases. The release workflow is the only
+supported publication path; local builds are useful for inspection but are not
+official releases.
 
 ## Release contract
 
@@ -14,9 +15,11 @@ local package builds are useful for inspection but are not official releases.
 - Manual workflow dispatch builds and verifies artifacts but never publishes a
   GitHub Release.
 - Linux artifacts are built for `amd64` and `arm64` source architectures.
-- A release contains two DEBs, two RPMs, `SHA256SUMS`, and GitHub artifact
-  attestations.
-- Windows packaging is deliberately outside the current release matrix.
+- A release contains two DEBs, two RPMs, Windows x64 and Arm64 portable ZIPs,
+  standalone server and CLI EXEs, platform checksum manifests, and GitHub
+  artifact attestations.
+- Windows artifacts are portable and currently unsigned; code signing and an
+  installer remain separate release-hardening work.
 
 The final publication job targets the `linux-release` GitHub environment.
 Repository owners can add required reviewers or deployment-branch rules to
@@ -31,6 +34,13 @@ syncspace_1.4.0_arm64.deb
 syncspace-1.4.0-1.x86_64.rpm
 syncspace-1.4.0-1.aarch64.rpm
 SHA256SUMS
+syncspace-1.4.0-windows-amd64.zip
+syncspace-1.4.0-windows-amd64.exe
+syncspace-1.4.0-windows-amd64-cli.exe
+syncspace-1.4.0-windows-arm64.zip
+syncspace-1.4.0-windows-arm64.exe
+syncspace-1.4.0-windows-arm64-cli.exe
+SHA256SUMS-windows
 ```
 
 Prerelease tags keep the SemVer string inside SyncSpace but use each package
@@ -136,14 +146,11 @@ GitHub attestation ties an asset digest to this repository, commit, and Actions
 workflow through Sigstore-backed provenance. They are complementary checks;
 neither should be silently omitted from release documentation.
 
-## Adding Windows later
+## Windows release hardening
 
-Windows support should arrive as a separate, signed packaging job that consumes
-the same release version and already-built embedded frontend. It must include a
-real installer/uninstaller, per-user writable state, firewall behaviour, clean
-upgrade and rollback handling, Authenticode verification, checksum and GitHub
-attestation publication, and a packaged-runtime smoke test.
-
-Do not add an unsigned raw `.exe` to a Linux release as a placeholder. The
-existing Linux matrix and asset contract should remain unchanged when the
-Windows job is introduced.
+The workflow builds version-stamped x64 and Arm64 PE executables, checks their
+machine type, smoke-tests the x64 packaged runtime, publishes SHA-256 checksums,
+and records GitHub provenance. It does not yet Authenticode-sign the binaries or
+create an installer. Add those only with protected signing credentials and a
+tested upgrade/uninstall path; never imply that the current portable files are
+signed.

@@ -8,8 +8,18 @@ fallback in the current product.
 
 The runnable product today is a Go engine with a responsive React control
 surface embedded into the same executable. It provides Home, Transfers,
-Devices, History, Settings, and Diagnostics views. Linux users can install that
-complete runtime from a GitHub Release without installing Go or Node.js.
+Devices, History, Settings, and Diagnostics views. Linux and Windows users can
+download that complete runtime from a GitHub Release without installing Go or
+Node.js.
+
+## Install a Windows release
+
+GitHub Releases provide portable Windows builds for x64 and Arm64. Download and
+extract `syncspace-VERSION-windows-ARCH.zip`, then run `syncspace.exe`. The
+standalone server and CLI executables are also attached separately. Windows
+builds are currently unsigned, so verify `SHA256SUMS-windows` and the GitHub
+build-provenance attestation before running them. See
+[SyncSpace for Windows](windows/README.md) for exact commands and limitations.
 
 ## Install a Linux release
 
