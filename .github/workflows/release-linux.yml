@@ -568,7 +568,9 @@ jobs:
 
           for package in "${actual[@]}"; do
             test -f "dist/$package"
-            bash packaging/linux/verify-package.sh "dist/$package"
+            # This bundle job runs on x86_64 and also inspects ARM64 payloads.
+            # Runtime checks already ran natively in each architecture job.
+            bash packaging/linux/verify-package.sh --skip-runtime "dist/$package"
           done
 
           if [[ "${actual[*]}" != *"amd64.deb"* || "${actual[*]}" != *"arm64.deb"* || \

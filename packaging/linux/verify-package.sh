@@ -10,7 +10,12 @@ require_command() {
   command -v "$1" >/dev/null 2>&1 || die "required command '$1' was not found"
 }
 
-[[ $# -eq 1 ]] || die "usage: packaging/linux/verify-package.sh PACKAGE.deb|PACKAGE.rpm"
+skip_runtime=0
+if [[ ${1:-} == --skip-runtime ]]; then
+  skip_runtime=1
+  shift
+fi
+[[ $# -eq 1 ]] || die "usage: packaging/linux/verify-package.sh [--skip-runtime] PACKAGE.deb|PACKAGE.rpm"
 package=$1
 [[ -f $package ]] || die "package '$package' does not exist"
 require_command awk
@@ -109,10 +114,14 @@ for regular_file in \
   [[ $(stat --format='%a' "$regular_file") == 644 ]] || die "$(basename -- "$regular_file") mode must be 0644"
 done
 
-version_output=$(HOME="$work_dir/home" XDG_CONFIG_HOME="$work_dir/home/.config" "$application" --version)
-[[ $version_output == SyncSpace\ * ]] || die "desktop version smoke test failed"
-application_version=${version_output#SyncSpace }
-grep -Fq "<release version=\"$application_version\"" "$metainfo" || die "desktop executable and AppStream versions do not match"
+if ((skip_runtime == 0)); then
+  version_output=$(HOME="$work_dir/home" XDG_CONFIG_HOME="$work_dir/home/.config" "$application" --version)
+  [[ $version_output == SyncSpace\ * ]] || die "desktop version smoke test failed"
+  application_version=${version_output#SyncSpace }
+  grep -Fq "<release version=\"$application_version\"" "$metainfo" || die "desktop executable and AppStream versions do not match"
+else
+  version_output='runtime check skipped for foreign architecture'
+fi
 
 actual_machine=$(readelf --file-header "$server" | awk -F: '/^[[:space:]]*Machine:/{ sub(/^[[:space:]]+/, "", $2); print $2; exit }')
 [[ $actual_machine == "$expected_machine" ]] || die "server architecture '$actual_machine' does not match package architecture '$package_arch'"
