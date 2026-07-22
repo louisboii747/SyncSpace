@@ -247,15 +247,38 @@ jobs:
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true' EXIT
 
+          reachable=false
+          for _ in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:18084/api/v1/privacy-policy >"$RUNNER_TEMP/syncspace-privacy-policy.json"; then
+              reachable=true
+              break
+            fi
+            sleep 1
+          done
+          if [[ "$reachable" != true ]]; then
+            cat "$log"
+            exit 1
+          fi
+
+          policy_version="$(jq --exit-status --raw-output '.version' "$RUNNER_TEMP/syncspace-privacy-policy.json")"
+          jq --null-input --arg version "$policy_version" '{version: $version}' \
+            | curl --fail --silent \
+                --header 'Content-Type: application/json' \
+                --data-binary @- \
+                http://127.0.0.1:18084/api/v1/privacy-policy/accept \
+            | jq --exit-status '.accepted == true' >/dev/null
+
           ready=false
           for _ in {1..30}; do
-            if curl --fail --silent http://127.0.0.1:18084/api/v1/health >/dev/null; then
+            if curl --fail --silent http://127.0.0.1:18084/api/v1/health \
+              | jq --exit-status '.status == "ok"' >/dev/null; then
               ready=true
               break
             fi
             sleep 1
           done
           if [[ "$ready" != true ]]; then
+            curl --silent http://127.0.0.1:18084/api/v1/health || true
             cat "$log"
             exit 1
           fi
