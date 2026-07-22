@@ -37,31 +37,34 @@ sha256sum --check --ignore-missing SHA256SUMS
 sudo dnf install ./syncspace-VERSION-1.x86_64.rpm
 ```
 
-Open **SyncSpace** from the application menu or run `syncspace`. The package
-starts a systemd user service, never a root daemon, and still requires the
-privacy policy to be accepted before LAN activity begins. It is not silently
-enabled during installation.
+Open **SyncSpace** from the application menu or run `syncspace`. A dedicated
+native Wails window owns the private backend lifecycle; it does not open a
+browser or display a localhost address. The first launch still requires the
+privacy policy to be accepted before LAN activity begins.
 
 See [Install SyncSpace on Linux](docs/linux-packages.md) for architecture
-selection, provenance verification, configuration, logs, upgrades, service
-startup, and uninstall instructions. GitHub Releases is not an APT/DNF
+selection, provenance verification, dependencies, upgrades, and uninstall
+instructions. GitHub Releases is not an APT/DNF
 repository, so upgrades are downloaded and verified explicitly.
 
 ## Start SyncSpace from source
 
 Source-build requirements: Go 1.26.4 or newer, Node.js 22 or newer, and npm.
 
-From the repository root, build the frontend once and start the server:
+From the repository root, build the frontend and the companion backend, then
+start the native desktop application:
 
 ```powershell
 cd frontend
 npm ci
 npm run build
 cd ..
-go run ./backend/cmd/server
+go build -o build/bin/syncspace-server.exe ./backend/cmd/server
+go build -o build/bin/syncspace.exe ./backend/cmd/desktop
+.\build\bin\syncspace.exe
 ```
 
-Open <http://127.0.0.1:8384>. This one command prepares:
+On Linux, omit `.exe`. The desktop window prepares:
 
 - the loopback-only management API and embedded frontend on port `8384`;
 - the TLS 1.3 LAN peer listener on port `8385`;
@@ -141,7 +144,7 @@ Reset only the lab data with `go run ./backend/cmd/syncspace dev reset`.
 1. Build and run the server on both computers connected to the same local
    network. Allow the SyncSpace peer port (`8385/TCP`) through the host firewall
    if the operating system asks.
-2. Open `http://127.0.0.1:8384` locally on each computer. Read and accept the
+2. Open the SyncSpace desktop window on each computer. Read and accept the
    privacy policy on both devices. Neither device is advertised before this.
 3. Open **Devices**. Discovery can show a device, but never trusts it. Cards use
    the editable SyncSpace name as the main label and show the operating-system
@@ -251,14 +254,14 @@ separate display name and hostname, stable identity, verified pairing, durable
 trust/block/forget, encrypted authenticated file/folder transfer, sender and
 receiver review, executable/script warnings, incoming approval, outgoing
 pause/resume/retry, cancellation, crash recovery, conflict handling, history,
-privacy and receive settings, diagnostics, local browser staging, versioned
+privacy and receive settings, diagnostics, streamed local staging, versioned
 management APIs, WebSockets, SQLite migrations, and the embedded responsive
 React experience.
 
 Current transfer limits are deliberately visible:
 
-- browser folder selection uploads files and relative paths, but cannot retain
-  empty directories because the browser does not provide an upload body for
+- webview folder selection uploads files and relative paths, but cannot retain
+  empty directories because the current selection bridge does not provide a body for
   them;
 - modification timestamps and file permissions are not preserved by the
   current transfer manifest;
@@ -266,13 +269,13 @@ Current transfer limits are deliberately visible:
   **Copy path** actions after receipt;
 - pause/resume/retry controls are currently sender-side. A receiver can accept,
   decline, or cancel, but cannot coordinate pause or retry from its UI;
-- the browser review is based on the selected file list and cannot predict
+- the sender review is based on the selected file list and cannot predict
   destination conflicts before the receiver checks its filesystem.
 
-The Linux DEB/RPM distribution is the embedded web product running as a per-user
-systemd service; it is not a native shell or tray application. Not yet
-implemented: a Windows installer/updater, Linux repository-based automatic
-updates, packaged native desktop shells, tray integration, buildable
+The Linux DEB/RPM and Windows portable distributions now use a native Wails
+desktop shell with single-instance ownership and a bundled React UI. Not yet
+implemented: a signed Windows installer/updater, Linux repository-based automatic
+updates, tray integration, buildable
 Android/iOS/iPadOS/macOS clients, native share sheets or file providers,
 QR/manual-IP pairing, clipboard/notes sync, camera workflows, accessibility
 certification, relay/remote transfer, or the later collaboration features in

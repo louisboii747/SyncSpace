@@ -13,7 +13,34 @@ import type {
 	UploadProgress,
 } from './types'
 
-const API = '/api/v1'
+const desktopOrigin = typeof window !== 'undefined' &&
+  (window.location.protocol === 'wails:' || window.location.hostname === 'wails.localhost')
+  ? 'http://127.0.0.1:8384'
+  : ''
+const API = `${desktopOrigin}/api/v1`
+
+interface DesktopBindingsWindow extends Window {
+  go?: { main?: { DesktopHost?: { StartupStatus: () => Promise<{ ready: boolean; error?: string }> } } }
+}
+
+let desktopReady: Promise<void> | undefined
+
+function waitForDesktop(): Promise<void> {
+  if (!desktopOrigin) return Promise.resolve()
+  if (desktopReady) return desktopReady
+  desktopReady = (async () => {
+    const binding = (window as DesktopBindingsWindow).go?.main?.DesktopHost
+    if (!binding) return
+    for (let attempt = 0; attempt < 80; attempt += 1) {
+      const status = await binding.StartupStatus()
+      if (status.error) throw new Error(status.error)
+      if (status.ready) return
+      await new Promise((resolve) => window.setTimeout(resolve, 250))
+    }
+    throw new Error('SyncSpace secure transfer services did not become ready')
+  })()
+  return desktopReady
+}
 
 export class APIError extends Error {
   constructor(message: string, readonly status: number) {
@@ -22,10 +49,24 @@ export class APIError extends Error {
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
+  await waitForDesktop()
+  const requestOptions = {
     ...options,
     headers: { 'Content-Type': 'application/json', ...options?.headers },
-  })
+  }
+  let response: Response | undefined
+  let lastError: unknown
+  const attempts = desktopOrigin ? 40 : 1
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      response = await fetch(path, requestOptions)
+      break
+    } catch (error) {
+      lastError = error
+      if (attempt + 1 < attempts) await new Promise((resolve) => window.setTimeout(resolve, 250))
+    }
+  }
+  if (!response) throw lastError instanceof Error ? lastError : new Error('SyncSpace services did not become ready')
   if (!response.ok) {
     let message = `Request failed (${response.status})`
     try {
@@ -143,8 +184,10 @@ export function connectTransferEvents(
   let retry: number | undefined
   let closed = false
   const connect = () => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-		socket = new WebSocket(`${protocol}//${window.location.host}${API}/ws/transfers`)
+		const socketBase = desktopOrigin || `${window.location.protocol === 'https:' ? 'https:' : 'http:'}//${window.location.host}`
+		const socketURL = new URL(`${socketBase}${API.replace(desktopOrigin, '')}/ws/transfers`)
+		socketURL.protocol = socketURL.protocol === 'https:' ? 'wss:' : 'ws:'
+		socket = new WebSocket(socketURL.toString())
     socket.onopen = () => onState(true)
     socket.onmessage = (message) => {
       try { onEvent(JSON.parse(message.data as string) as TransferEvent) } catch (error) { console.warn('SyncSpace ignored a malformed transfer event', error) }

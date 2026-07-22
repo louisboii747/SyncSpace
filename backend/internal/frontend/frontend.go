@@ -15,13 +15,19 @@ import (
 //go:embed dist
 var assets embed.FS
 
-// Handler returns an immutable-asset-aware SPA handler. Unknown paths fall
-// back to index.html so future client-side routes remain refresh-safe.
-func Handler() http.Handler {
+// Assets returns the production frontend filesystem for native desktop hosts.
+func Assets() fs.FS {
 	root, err := fs.Sub(assets, "dist")
 	if err != nil {
 		panic(err)
 	}
+	return root
+}
+
+// Handler returns an immutable-asset-aware SPA handler. Unknown paths fall
+// back to index.html so future client-side routes remain refresh-safe.
+func Handler() http.Handler {
+	root := Assets()
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodGet && request.Method != http.MethodHead {
 			response.Header().Set("Allow", "GET, HEAD")

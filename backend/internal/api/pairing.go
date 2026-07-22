@@ -157,7 +157,7 @@ func localOnly() gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "cross-origin local API requests are not allowed"})
 			return
 		}
-		if site := c.GetHeader("Sec-Fetch-Site"); site == "cross-site" && c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead {
+		if site := c.GetHeader("Sec-Fetch-Site"); site == "cross-site" && !isDesktopOrigin(c.GetHeader("Origin")) && c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "cross-site local API requests are not allowed"})
 			return
 		}
@@ -175,6 +175,9 @@ func isLoopbackRequest(address string) bool {
 }
 
 func sameLocalOrigin(origin, requestHost string) bool {
+	if isDesktopOrigin(origin) {
+		return true
+	}
 	parsed, err := url.Parse(origin)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 		return false

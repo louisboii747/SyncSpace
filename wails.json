@@ -1,0 +1,24 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "SyncSpace",
+  "outputfilename": "syncspace",
+  "projectdir": "backend/cmd/desktop",
+  "frontend:dir": "../../../frontend",
+  "frontend:install": "npm ci --ignore-scripts --no-audit --no-fund",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "wailsjsdir": "../../../frontend/src/wailsjs",
+  "build:dir": "../../../build",
+  "build:tags": "webkit2_41",
+  "author": {
+    "name": "SyncSpace maintainers"
+  },
+  "info": {
+    "companyName": "SyncSpace",
+    "productName": "SyncSpace",
+    "productVersion": "0.1.0",
+    "copyright": "Copyright SyncSpace maintainers",
+    "comments": "Private local-network file transfer"
+  }
+}

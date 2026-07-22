@@ -36,9 +36,11 @@ syncspace-1.4.0-1.aarch64.rpm
 SHA256SUMS
 syncspace-1.4.0-windows-amd64.zip
 syncspace-1.4.0-windows-amd64.exe
+syncspace-1.4.0-windows-amd64-server.exe
 syncspace-1.4.0-windows-amd64-cli.exe
 syncspace-1.4.0-windows-arm64.zip
 syncspace-1.4.0-windows-arm64.exe
+syncspace-1.4.0-windows-arm64-server.exe
 syncspace-1.4.0-windows-arm64-cli.exe
 SHA256SUMS-windows
 ```
@@ -109,7 +111,7 @@ when a requested tool is missing.
    git push origin v1.4.0
    ```
 
-4. Watch the Linux release workflow through every build, package verification,
+4. Watch the desktop release workflow through every build, package verification,
    checksum, attestation, and publication job.
 5. Download the published assets into an empty directory and verify them as a
    user would:
@@ -122,11 +124,10 @@ when a requested tool is missing.
      --repo louisboii747/syncspace
    ```
 
-6. Install one DEB and one RPM on clean supported distributions. Confirm the
-   package is inert immediately after install, `syncspace open` starts the user
-   service and opens the loopback interface, privacy acceptance is required,
-   `syncspace enable` is the only autostart opt-in, logs are visible through
-   `syncspace logs`, and uninstall leaves user data intact.
+6. Install one DEB and one RPM on clean supported distributions. Confirm that
+   `syncspace` opens one native window without a browser, a second launch
+   focuses it, privacy acceptance is required, closing the window stops its
+   companion backend, and uninstall leaves user data intact.
 
 Do not publish checksums produced before the final asset aggregation. Do not
 replace a file attached to an existing tag: create a new patch release so the

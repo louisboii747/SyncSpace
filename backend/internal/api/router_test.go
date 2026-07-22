@@ -138,6 +138,17 @@ func TestVersionedManagementAliasAndCrossOriginProtection(t *testing.T) {
 		t.Fatalf("different localhost origin status=%d", otherLocalPortResponse.Code)
 	}
 
+	desktop := httptest.NewRequest(http.MethodPost, "/api/v1/discovery/refresh", nil)
+	desktop.RemoteAddr = "127.0.0.1:54321"
+	desktop.Host = "127.0.0.1:8384"
+	desktop.Header.Set("Origin", "http://wails.localhost")
+	desktop.Header.Set("Sec-Fetch-Site", "cross-site")
+	desktopResponse := httptest.NewRecorder()
+	router.ServeHTTP(desktopResponse, desktop)
+	if desktopResponse.Code != http.StatusAccepted || desktopResponse.Header().Get("Access-Control-Allow-Origin") != "http://wails.localhost" {
+		t.Fatalf("Wails desktop request status=%d origin=%q", desktopResponse.Code, desktopResponse.Header().Get("Access-Control-Allow-Origin"))
+	}
+
 	missing := httptest.NewRequest(http.MethodGet, "/api/v1/does-not-exist", nil)
 	missing.RemoteAddr = "127.0.0.1:54321"
 	missingResponse := httptest.NewRecorder()

@@ -45,8 +45,7 @@ case "$package" in
     esac
     expected_name="syncspace_${package_version}_${package_arch}.deb"
     [[ $(basename -- "$package") == "$expected_name" ]] || die "Debian artifact name does not match package metadata (expected $expected_name)"
-    grep -Eq '(^|, )[[:space:]]*systemd([[:space:]]|,|$)' <<<"$package_dependencies" || die "Debian package does not depend on systemd"
-    grep -Eq '(^|, )[[:space:]]*xdg-utils([[:space:]]|,|$)' <<<"$package_dependencies" || die "Debian package does not depend on xdg-utils"
+    grep -Eq '(^|, )[[:space:]]*libwebkit2gtk-4\.1-0([[:space:]]|,|$)' <<<"$package_dependencies" || die "Debian package does not depend on WebKitGTK 4.1"
     if dpkg-deb --contents "$package" | awk '$2 != "root/root" { print; bad=1 } END { exit bad }'; then
       :
     else
@@ -70,8 +69,8 @@ case "$package" in
     esac
     expected_name="syncspace-${package_version}-${package_release}.${package_arch}.rpm"
     [[ $(basename -- "$package") == "$expected_name" ]] || die "RPM artifact name does not match package metadata (expected $expected_name)"
-    rpm --query --package --requires "$package" | grep -Eq '^systemd([[:space:]]|$)' || die "RPM does not require systemd"
-    rpm --query --package --requires "$package" | grep -Eq '^xdg-utils([[:space:]]|$)' || die "RPM does not require xdg-utils"
+    rpm --query --package --requires "$package" | grep -Eq '^gtk3([[:space:]]|$)' || die "RPM does not require GTK 3"
+    rpm --query --package --requires "$package" | grep -Eq '^webkit2gtk4\.1([[:space:]]|$)' || die "RPM does not require WebKitGTK 4.1"
     if rpm --query --package --queryformat '[%{FILEUSERNAME} %{FILEGROUPNAME}\n]' "$package" | awk '$1 != "root" || $2 != "root" { print; bad=1 } END { exit bad }'; then
       :
     else
@@ -85,52 +84,44 @@ case "$package" in
     ;;
 esac
 
-launcher="$root/usr/bin/syncspace"
+application="$root/usr/bin/syncspace"
 server="$root/usr/libexec/syncspace/syncspace-server"
-unit="$root/usr/lib/systemd/user/syncspace.service"
 desktop="$root/usr/share/applications/syncspace.desktop"
 metainfo="$root/usr/share/metainfo/syncspace.metainfo.xml"
 icon="$root/usr/share/icons/hicolor/scalable/apps/syncspace.svg"
 
-[[ -x $launcher ]] || die "launcher is missing or is not executable"
+[[ -x $application ]] || die "desktop application is missing or is not executable"
 [[ -x $server ]] || die "server is missing or is not executable"
-[[ -f $unit ]] || die "systemd user unit is missing"
 [[ -f $desktop ]] || die "desktop entry is missing"
 [[ -f $metainfo ]] || die "AppStream metadata is missing"
 [[ -f $icon ]] || die "desktop icon is missing"
 [[ -f $root/usr/share/licenses/syncspace/LICENSE ]] || die "license is missing"
-[[ -f $root/usr/share/doc/syncspace/service.env.example ]] || die "environment example is missing"
 [[ -f $root/usr/share/man/man1/syncspace.1.gz ]] || die "manual page is missing"
 
-[[ $(stat --format='%a' "$launcher") == 755 ]] || die "launcher mode must be 0755"
+[[ $(stat --format='%a' "$application") == 755 ]] || die "desktop application mode must be 0755"
 [[ $(stat --format='%a' "$server") == 755 ]] || die "server mode must be 0755"
 for regular_file in \
-  "$unit" \
   "$desktop" \
   "$metainfo" \
   "$icon" \
   "$root/usr/share/licenses/syncspace/LICENSE" \
-  "$root/usr/share/doc/syncspace/service.env.example" \
   "$root/usr/share/man/man1/syncspace.1.gz"; do
   [[ $(stat --format='%a' "$regular_file") == 644 ]] || die "$(basename -- "$regular_file") mode must be 0644"
 done
 
-sh -n "$launcher"
-version_output=$(HOME="$work_dir/home" XDG_CONFIG_HOME="$work_dir/home/.config" "$launcher" --version)
-[[ $version_output == SyncSpace\ * ]] || die "launcher version smoke test failed"
-launcher_version=${version_output#SyncSpace }
-grep -Fq "<release version=\"$launcher_version\"" "$metainfo" || die "launcher and AppStream versions do not match"
+version_output=$(HOME="$work_dir/home" XDG_CONFIG_HOME="$work_dir/home/.config" "$application" --version)
+[[ $version_output == SyncSpace\ * ]] || die "desktop version smoke test failed"
+application_version=${version_output#SyncSpace }
+grep -Fq "<release version=\"$application_version\"" "$metainfo" || die "desktop executable and AppStream versions do not match"
 
 actual_machine=$(readelf --file-header "$server" | awk -F: '/^[[:space:]]*Machine:/{ sub(/^[[:space:]]+/, "", $2); print $2; exit }')
 [[ $actual_machine == "$expected_machine" ]] || die "server architecture '$actual_machine' does not match package architecture '$package_arch'"
+desktop_machine=$(readelf --file-header "$application" | awk -F: '/^[[:space:]]*Machine:/{ sub(/^[[:space:]]+/, "", $2); print $2; exit }')
+[[ $desktop_machine == "$expected_machine" ]] || die "desktop architecture '$desktop_machine' does not match package architecture '$package_arch'"
 
-grep -Fq 'ExecStart=/usr/libexec/syncspace/syncspace-server' "$unit" || die "unit has an unexpected executable"
-grep -Fq 'Environment=SYNCSPACE_HOST=127.0.0.1' "$unit" || die "unit does not pin management to loopback"
-grep -Fq 'EnvironmentFile=-%E/syncspace/service.env' "$unit" || die "unit environment file is missing"
-grep -Fq 'WantedBy=default.target' "$unit" || die "unit is not enableable as a user service"
-grep -Fq 'ProtectSystem=full' "$unit" || die "unit filesystem hardening does not preserve writable user data"
-if grep -Eq 'SYNCSPACE_(DEV_MODE|STATIC_PEERS)' "$unit"; then
-  die "production unit enables a development-only setting"
+grep -Fq 'Exec=syncspace' "$desktop" || die "desktop entry does not launch the native application"
+if grep -Eq 'Exec=.*(open|https?://|xdg-open)' "$desktop"; then
+  die "desktop entry still launches a browser workflow"
 fi
 if find "$root" -path '*/etc/systemd/system/*' -o -path '*/usr/lib/systemd/system/*' | grep -q .; then
   die "package contains a system service; SyncSpace must remain per-user"
@@ -145,8 +136,4 @@ fi
 if command -v appstreamcli >/dev/null 2>&1; then
   appstreamcli validate --no-net "$metainfo"
 fi
-if command -v shellcheck >/dev/null 2>&1; then
-  shellcheck "$launcher"
-fi
-
 printf 'Verified %s (%s)\n' "$package" "$version_output"

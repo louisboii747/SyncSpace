@@ -16,21 +16,26 @@ npm ci
 cd ..
 ```
 
-## Production-like local run
+## Native desktop local run
 
-Build the React assets and start the one-device application:
+Build the React assets and place the desktop and companion backend beside each
+other:
 
 ```powershell
 cd frontend
 npm run build
 cd ..
-go run ./backend/cmd/server
+go build -o build/bin/syncspace-server.exe ./backend/cmd/server
+go build -o build/bin/syncspace.exe ./backend/cmd/desktop
+.\build\bin\syncspace.exe
 ```
 
-Open <http://127.0.0.1:8384>. The Go process serves the compiled frontend, the
-loopback management API, and WebSockets at that address. It also starts a
-separate TLS 1.3 peer listener on `0.0.0.0:8385`. LAN clients cannot open the
-management API or frontend.
+On Linux omit `.exe` and build the desktop with
+`-tags desktop,production,webkit2_41`. SyncSpace
+opens its own Wails window, starts the companion backend without opening a
+terminal or browser, and stops it when the window exits. The React assets are
+loaded from the desktop binary. Its loopback management API remains private;
+the separate TLS 1.3 peer listener uses `0.0.0.0:8385` by default.
 
 On a normal profile, the first page is privacy policy `2026-07-1`. The backend
 does not advertise or browse with mDNS, run transfer workers, or permit pairing
@@ -169,12 +174,15 @@ chosen path. Both roots can be changed independently through
 
 ```powershell
 go build -o .tmp/syncspace-server.exe ./backend/cmd/server
+go build -o .tmp/syncspace.exe ./backend/cmd/desktop
 go build -o .tmp/syncspace-cli.exe ./backend/cmd/syncspace
 ```
 
-On macOS/Linux omit the `.exe` suffix. These commands build the current
-headless/embedded-web product. On Linux, the release packaging scripts wrap the
-server and embedded interface in installable DEB/RPM artifacts:
+Keep the desktop and server beside each other. On macOS/Linux omit the `.exe`
+suffix; desktop builds require `-tags desktop,production` and Linux also needs
+`webkit2_41` plus the GTK/WebKitGTK
+development packages. The release packaging scripts build the native shell and
+server into installable DEB/RPM artifacts:
 
 ```sh
 packaging/linux/build-packages.sh \
@@ -186,8 +194,8 @@ packaging/linux/build-packages.sh \
 
 Run `packaging/linux/verify-package.sh <artifact>` before installing any local
 package. See [Linux packages](linux-packages.md) and
-[Releasing](releasing.md). These packages provide a browser-based per-user
-Linux service, not a native desktop shell.
+[Releasing](releasing.md). These packages launch the native desktop shell and
+do not install a background system service.
 
 ## Engineering invariants
 

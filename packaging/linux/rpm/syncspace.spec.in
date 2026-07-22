@@ -6,14 +6,14 @@ License:        Apache-2.0
 URL:            https://github.com/louisboii747/syncspace
 Source0:        syncspace-payload.tar
 BuildArch:      @RPM_ARCH@
-Requires:       systemd
-Requires:       xdg-utils
+Requires:       gtk3
+Requires:       webkit2gtk4.1
 
 %description
 SyncSpace sends files directly between explicitly paired devices on the same
 local network. It includes a loopback-only management interface, encrypted
-peer transport, persistent device identity, transfer history, and a per-user
-systemd service. It does not require a cloud relay.
+ peer transport, persistent device identity, transfer history, and a native
+ desktop window. It does not require a cloud relay or external browser.
 
 %prep
 
@@ -25,10 +25,8 @@ tar -xf %{SOURCE0} -C %{buildroot}
 
 %files
 %license /usr/share/licenses/syncspace/LICENSE
-%doc /usr/share/doc/syncspace/service.env.example
 /usr/bin/syncspace
 /usr/libexec/syncspace/syncspace-server
-/usr/lib/systemd/user/syncspace.service
 /usr/share/applications/syncspace.desktop
 /usr/share/icons/hicolor/scalable/apps/syncspace.svg
 /usr/share/metainfo/syncspace.metainfo.xml

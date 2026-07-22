@@ -44,13 +44,18 @@ try {
     $previousCgo = $env:CGO_ENABLED
     $env:GOOS = 'windows'
     $env:GOARCH = $Architecture
-    $env:CGO_ENABLED = '0'
+    # Wails needs its native desktop implementation. CGO-disabled builds can
+    # compile but exit without creating a window, so release builds are native.
+    $env:CGO_ENABLED = '1'
     try {
         Push-Location $repoRoot
         try {
-            $serverFlags = "-s -w -X main.buildVersion=$Version"
-            go build -trimpath -buildvcs=true -ldflags $serverFlags -o (Join-Path $releaseDirectory 'syncspace.exe') ./backend/cmd/server
-            if ($LASTEXITCODE -ne 0) { throw 'syncspace.exe build failed' }
+            $desktopFlags = "-H windowsgui -s -w -X main.buildVersion=$Version"
+            go build -tags 'desktop,production' -trimpath -buildvcs=true -ldflags $desktopFlags -o (Join-Path $releaseDirectory 'syncspace.exe') ./backend/cmd/desktop
+            if ($LASTEXITCODE -ne 0) { throw 'SyncSpace desktop build failed' }
+            $serverFlags = "-H windowsgui -s -w -X main.buildVersion=$Version"
+            go build -trimpath -buildvcs=true -ldflags $serverFlags -o (Join-Path $releaseDirectory 'syncspace-server.exe') ./backend/cmd/server
+            if ($LASTEXITCODE -ne 0) { throw 'SyncSpace backend build failed' }
             $cliFlags = "-s -w -X main.buildVersion=$Version"
             go build -trimpath -buildvcs=true -ldflags $cliFlags -o (Join-Path $releaseDirectory 'syncspace-cli.exe') ./backend/cmd/syncspace
             if ($LASTEXITCODE -ne 0) { throw 'syncspace-cli.exe build failed' }
@@ -68,6 +73,7 @@ try {
 
     $prefix = "syncspace-$Version-windows-$Architecture"
     Copy-Item (Join-Path $releaseDirectory 'syncspace.exe') (Join-Path $outputRoot "$prefix.exe") -Force
+    Copy-Item (Join-Path $releaseDirectory 'syncspace-server.exe') (Join-Path $outputRoot "$prefix-server.exe") -Force
     Copy-Item (Join-Path $releaseDirectory 'syncspace-cli.exe') (Join-Path $outputRoot "$prefix-cli.exe") -Force
     Compress-Archive -Path (Join-Path $releaseDirectory '*') -DestinationPath (Join-Path $outputRoot "$prefix.zip") -CompressionLevel Optimal -Force
 

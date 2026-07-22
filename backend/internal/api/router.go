@@ -45,7 +45,7 @@ func NewRouter(config RouterConfig) *gin.Engine {
 	}
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
-	router.Use(requestLogger(logger), recovery(logger), privacyGate(config.Settings))
+	router.Use(desktopOrigin(), requestLogger(logger), recovery(logger), privacyGate(config.Settings))
 
 	router.GET("/devices", localOnly(), func(c *gin.Context) {
 		c.JSON(http.StatusOK, config.Discovery.Devices())
@@ -90,6 +90,30 @@ func NewRouter(config RouterConfig) *gin.Engine {
 		gin.WrapH(config.Frontend)(c)
 	})
 	return router
+}
+
+// desktopOrigin permits only the private Wails document origin to call the
+// loopback management API. Browser origins remain protected by the existing
+// same-origin checks.
+func desktopOrigin() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		origin := c.GetHeader("Origin")
+		if isDesktopOrigin(origin) {
+			c.Header("Access-Control-Allow-Origin", origin)
+			c.Header("Vary", "Origin")
+			c.Header("Access-Control-Allow-Headers", "Content-Type")
+			c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			if c.Request.Method == http.MethodOptions {
+				c.AbortWithStatus(http.StatusNoContent)
+				return
+			}
+		}
+		c.Next()
+	}
+}
+
+func isDesktopOrigin(origin string) bool {
+	return origin == "wails://wails" || origin == "http://wails.localhost"
 }
 
 // privacyGate keeps all peer-facing pairing and transfer routes closed until

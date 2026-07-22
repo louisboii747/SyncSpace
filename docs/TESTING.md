@@ -183,10 +183,9 @@ packaging/linux/verify-package.sh dist/syncspace-1.4.0-1.x86_64.rpm
 
 Repeat on an ARM64 Linux host for `arm64`, producing an `arm64` DEB and
 `aarch64` RPM, or rely on the release matrix's native ARM64 runner. Verification
-must inspect metadata, version, architecture, payload paths, ownership and
-permissions, the non-root user-service contract, desktop entry, icon, optional
-environment example, and the extracted executable. It must not need to install
-the package or start a root service.
+must inspect metadata, version, architecture, payload paths, ownership,
+permissions, native desktop and backend executables, desktop entry, and icon.
+It must not need to install the package or start a root service.
 
 The tag-triggered `.github/workflows/release-linux.yml` workflow repeats the
 normal frontend and Go gates, builds every package twice to check deterministic
@@ -198,15 +197,12 @@ A manual workflow dispatch validates artifacts but must not publish a release.
 Before announcing a release, install a DEB and an RPM on clean supported
 systems and confirm:
 
-1. installation does not enable or start SyncSpace;
-2. the menu entry and `syncspace open` start the per-user service and open
-   `http://127.0.0.1:8384`;
-3. privacy acceptance is still required before LAN activity;
-4. explicit `syncspace enable` survives a new login;
-5. service output is available through `syncspace logs` and
-   `journalctl --user -u syncspace.service`;
-6. installing a newer package preserves identity and transfer state after a
-   user-service restart; and
+1. installation does not start SyncSpace;
+2. the menu entry and `syncspace` open one native window without a browser;
+3. a second launch focuses the existing window and creates no second backend;
+4. privacy acceptance is still required before LAN activity;
+5. closing the window stops its companion backend;
+6. installing a newer package preserves identity and transfer state; and
 7. package removal leaves per-user application data and received files intact.
 
 See [Linux packages](linux-packages.md) for the end-user commands and

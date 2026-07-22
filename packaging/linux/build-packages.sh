@@ -186,25 +186,34 @@ fi
 
 [[ -f "$repo_root/backend/internal/frontend/dist/index.html" ]] || die "embedded frontend is missing; run without --skip-frontend"
 
-binary="$work_dir/syncspace-server"
+server_binary="$work_dir/syncspace-server"
 (
   cd -- "$repo_root"
   CGO_ENABLED=0 GOOS=linux GOARCH=$go_arch go build \
     -trimpath \
     -buildvcs=false \
     -ldflags "-s -w -X main.buildVersion=$version" \
-    -o "$binary" \
+    -o "$server_binary" \
     ./backend/cmd/server
 )
 
+desktop_binary="$work_dir/syncspace"
+(
+  cd -- "$repo_root"
+  CGO_ENABLED=1 GOOS=linux GOARCH=$go_arch go build \
+    -tags desktop,production,webkit2_41 \
+    -trimpath \
+    -buildvcs=false \
+    -ldflags "-s -w -X main.buildVersion=$version" \
+    -o "$desktop_binary" \
+    ./backend/cmd/desktop
+)
+
 stage="$work_dir/stage"
-install -D -m 0755 "$binary" "$stage/usr/libexec/syncspace/syncspace-server"
-sed "s/@VERSION@/$version/g" "$script_dir/assets/syncspace-launcher" > "$work_dir/syncspace-launcher"
-install -D -m 0755 "$work_dir/syncspace-launcher" "$stage/usr/bin/syncspace"
-install -D -m 0644 "$script_dir/assets/syncspace.service" "$stage/usr/lib/systemd/user/syncspace.service"
+install -D -m 0755 "$server_binary" "$stage/usr/libexec/syncspace/syncspace-server"
+install -D -m 0755 "$desktop_binary" "$stage/usr/bin/syncspace"
 install -D -m 0644 "$script_dir/assets/syncspace.desktop" "$stage/usr/share/applications/syncspace.desktop"
 install -D -m 0644 "$script_dir/assets/syncspace.svg" "$stage/usr/share/icons/hicolor/scalable/apps/syncspace.svg"
-install -D -m 0644 "$script_dir/assets/service.env.example" "$stage/usr/share/doc/syncspace/service.env.example"
 install -D -m 0644 "$repo_root/LICENSE" "$stage/usr/share/licenses/syncspace/LICENSE"
 
 release_date=$(date --utc --date="@$SOURCE_DATE_EPOCH" +%F)

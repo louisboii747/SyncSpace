@@ -180,7 +180,7 @@ jobs:
       - name: Install package inspection tools
         run: |
           sudo apt-get update
-          sudo apt-get install --yes appstream binutils cpio curl desktop-file-utils file jq rpm shellcheck
+          sudo apt-get install --yes appstream binutils build-essential cpio curl desktop-file-utils file jq libgtk-3-dev libwebkit2gtk-4.1-dev rpm shellcheck
 
       - name: Install locked frontend dependencies
         working-directory: frontend
@@ -302,14 +302,16 @@ jobs:
     needs:
       - metadata
       - validate
-    runs-on: windows-2025
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        goarch:
-          - amd64
-          - arm64
+        include:
+          - goarch: amd64
+            runner: windows-2025
+          - goarch: arm64
+            runner: windows-11-arm
 
     steps:
       - name: Check out release source
@@ -354,19 +356,44 @@ jobs:
         run: |
           $prefix = "syncspace-$env:VERSION-windows-${{ matrix.goarch }}"
           $server = "dist/windows/$prefix.exe"
+          $backend = "dist/windows/$prefix-server.exe"
           $cli = "dist/windows/$prefix-cli.exe"
           $archive = "dist/windows/$prefix.zip"
-          foreach ($path in @($server, $cli, $archive)) {
+          foreach ($path in @($server, $backend, $cli, $archive)) {
             if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
               throw "Missing Windows release asset: $path"
             }
           }
-          if ('${{ matrix.goarch }}' -eq 'amd64') {
-            $actual = (& $server --version).Trim()
-            if ($actual -ne $env:VERSION) { throw "Server version is $actual, expected $env:VERSION" }
-            $actual = (& $cli --version).Trim()
-            if ($actual -ne $env:VERSION) { throw "CLI version is $actual, expected $env:VERSION" }
+          function Get-EmbeddedVersion([string] $Path) {
+            $resolvedPath = (Resolve-Path -LiteralPath $Path).Path
+            $stdoutPath = Join-Path $env:RUNNER_TEMP ("syncspace-version-{0}.out" -f [guid]::NewGuid())
+            $stderrPath = Join-Path $env:RUNNER_TEMP ("syncspace-version-{0}.err" -f [guid]::NewGuid())
+            try {
+              # PowerShell does not synchronously wait for Windows GUI-subsystem
+              # executables when invoked directly, so capture and wait explicitly.
+              $process = Start-Process -FilePath $resolvedPath -ArgumentList '--version' -Wait -PassThru -NoNewWindow `
+                -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+              $output = ((Get-Content -LiteralPath $stdoutPath -Raw -ErrorAction SilentlyContinue) | Out-String).Trim()
+              $errorOutput = ((Get-Content -LiteralPath $stderrPath -Raw -ErrorAction SilentlyContinue) | Out-String).Trim()
+            } finally {
+              Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
+            }
+            if ($process.ExitCode -ne 0) {
+              throw "$Path --version exited with $($process.ExitCode)`: $errorOutput"
+            }
+            $pattern = '(?m)^(?:SyncSpace\s+)?(?<version>[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?)\s*$'
+            $matches = [regex]::Matches($output, $pattern)
+            if ($matches.Count -eq 0) {
+              throw "Could not read a SemVer version from $Path output: $output"
+            }
+            return $matches[$matches.Count - 1].Groups['version'].Value
           }
+          $actual = Get-EmbeddedVersion $server
+          if ($actual -ne $env:VERSION) { throw "Desktop version is $actual, expected $env:VERSION" }
+          $actual = Get-EmbeddedVersion $backend
+          if ($actual -ne $env:VERSION) { throw "Backend version is $actual, expected $env:VERSION" }
+          $actual = Get-EmbeddedVersion $cli
+          if ($actual -ne $env:VERSION) { throw "CLI version is $actual, expected $env:VERSION" }
           $bytes = [IO.File]::ReadAllBytes($server)
           $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
           $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
@@ -375,8 +402,7 @@ jobs:
             throw ('PE machine type 0x{0:x4}, expected 0x{1:x4}' -f $machine, $expectedMachine)
           }
 
-      - name: Smoke-test Windows x64 server
-        if: matrix.goarch == 'amd64'
+      - name: Smoke-test Windows backend
         shell: pwsh
         env:
           VERSION: ${{ needs.metadata.outputs.version }}
@@ -386,7 +412,7 @@ jobs:
           SYNCSPACE_PEER_PORT: 18085
           SYNCSPACE_DATA_DIR: ${{ runner.temp }}\syncspace-smoke-data
         run: |
-          $binary = "dist/windows/syncspace-$env:VERSION-windows-amd64.exe"
+          $binary = "dist/windows/syncspace-$env:VERSION-windows-${{ matrix.goarch }}-server.exe"
           $process = Start-Process -FilePath $binary -PassThru -WindowStyle Hidden
           try {
             $ready = $false
@@ -414,6 +440,38 @@ jobs:
             if ($page.Content -notmatch 'id="root"') { throw 'Embedded React entrypoint is missing' }
           } finally {
             if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+          }
+
+      - name: Smoke-test native desktop lifecycle
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+          SYNCSPACE_DATA_DIR: ${{ runner.temp }}\syncspace-desktop-data
+        run: |
+          $binary = "dist/windows/syncspace-$env:VERSION-windows-${{ matrix.goarch }}.exe"
+          $desktop = Start-Process -FilePath $binary -PassThru
+          try {
+            $ready = $false
+            for ($attempt = 0; $attempt -lt 40; $attempt++) {
+              $desktop.Refresh()
+              if ($desktop.HasExited) { throw "Native desktop exited during startup with $($desktop.ExitCode)" }
+              try {
+                Invoke-RestMethod http://127.0.0.1:8384/api/v1/privacy-policy | Out-Null
+                $ready = $true
+                break
+              } catch { Start-Sleep -Milliseconds 250 }
+            }
+            if (-not $ready) { throw 'Native desktop did not start its companion backend' }
+            $second = Start-Process -FilePath $binary -PassThru
+            if (-not $second.WaitForExit(5000)) {
+              Stop-Process -Id $second.Id -Force
+              throw 'Second launch did not yield to the existing instance'
+            }
+            $desktop.Refresh()
+            if ($desktop.HasExited) { throw 'First desktop instance stopped after the second launch' }
+          } finally {
+            if (-not $desktop.HasExited) { Stop-Process -Id $desktop.Id -Force }
+            Get-Process | Where-Object { $_.Path -like '*syncspace*server.exe' } | Stop-Process -Force -ErrorAction SilentlyContinue
           }
 
       - name: Upload Windows architecture assets
@@ -447,9 +505,9 @@ jobs:
         shell: pwsh
         run: |
           $assets = @(Get-ChildItem -LiteralPath dist -File | Where-Object { $_.Extension -in '.exe', '.zip' } | Sort-Object Name)
-          if ($assets.Count -ne 6) { throw "Expected six Windows assets, found $($assets.Count)" }
+          if ($assets.Count -ne 8) { throw "Expected eight Windows assets, found $($assets.Count)" }
           foreach ($architecture in @('amd64', 'arm64')) {
-            if (@($assets | Where-Object Name -Like "*windows-$architecture*").Count -ne 3) {
+            if (@($assets | Where-Object Name -Like "*windows-$architecture*").Count -ne 4) {
               throw "Windows $architecture asset set is incomplete"
             }
           }

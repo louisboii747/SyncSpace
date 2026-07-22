@@ -5,14 +5,14 @@ cloud database, relay, or internet fallback in the implemented data path.
 
 ## Runtime topology
 
-One normal process owns two listeners:
+The desktop process owns one companion backend process and its two listeners:
 
 ```text
-local browser/native client
+native Wails window with embedded React assets
         |
         | HTTP + WebSocket, loopback only (default 127.0.0.1:8384)
         v
-management API + embedded React UI
+loopback management API
         |
         +-- identity / settings / SQLite / transfer workers
         +-- mDNS discovery and untrusted peer registry
@@ -22,7 +22,10 @@ management API + embedded React UI
 paired SyncSpace device on the LAN
 ```
 
-The loopback listener serves `/api/v1/*` management routes and the frontend.
+The Wails asset server renders the bundled frontend without a localhost page.
+The loopback listener serves `/api/v1/*` management routes for the private
+desktop transport and development tools. Only the exact Wails document origins
+are allowed cross-origin; arbitrary browser origins remain rejected.
 Legacy unversioned management paths are retained during migration. The LAN
 listener serves `/v1/pairing/*` and `/v1/transfers/*`; local-only middleware
 prevents it from reaching management routes.
@@ -71,6 +74,8 @@ normal server startup never auto-accepts.
   adapters.
 - `frontend`: React/TypeScript management client.
 - `backend/internal/frontend`: compiled asset embedding.
+- `backend/cmd/desktop`: Wails window, single-instance lock, window-state
+  persistence, and companion-backend lifecycle.
 - `backend/cmd/server`: composition root and two-listener lifecycle.
 - `backend/cmd/syncspace`: doctor, lab, verification, and diagnostics workflows.
 
@@ -217,18 +222,16 @@ chosen path. The safe default conflict policy is rename.
 - Extension-based executable/script warnings are shown on send and receive
   review. SyncSpace does not inspect file content for malware and never opens or
   executes a received file automatically.
-- The headless/embedded-web runtime has no platform shell for opening a received
+- The current desktop bridge does not yet expose opening a received
   file, revealing it in a file manager, copying its path, or opening the local
   data directory.
-- Destination conflicts are resolved by the receiver. Browser send review
+- Destination conflicts are resolved by the receiver. Sender review
   cannot know the remote filesystem's conflicts in advance.
 
 ## Platform state
 
-The shared Go/React product runs from source on Windows, macOS, and Linux where
-its dependencies are supported. Windows has DPAPI private-key protection. The
-current non-Windows adapter uses strict file permissions, not Keychain or
-Secret Service. The `android`, `ios`, `macos`, and `windows` directories are
-architecture placeholders, not complete native applications. Native shells,
-background services, share extensions, installers, tray integration, and
-updaters remain separate deliverables.
+The shared Go/React desktop product uses Wails on Windows and Linux. Windows has
+DPAPI private-key protection; the current non-Windows adapter uses strict file
+permissions, not Keychain or Secret Service. Android, iOS, and macOS clients,
+native share extensions, signed installers, tray integration, and updaters
+remain separate deliverables.

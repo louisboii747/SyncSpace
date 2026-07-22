@@ -20,6 +20,6 @@ Protocol and implementation references:
 - [Diagnostics](DIAGNOSTICS.md)
 - [Maintainer release guide](releasing.md)
 
-The DEB and RPM packages ship the Go engine with its embedded React interface
-as a per-user Linux service. The native-platform folders remain design
-placeholders until buildable native clients exist.
+The DEB, RPM, and portable Windows artifacts ship a Wails desktop window with
+embedded React assets and a lifecycle-owned Go backend. Mobile and macOS
+folders remain design placeholders until buildable native clients exist.

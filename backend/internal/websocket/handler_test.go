@@ -3,6 +3,7 @@ package websocket
 import (
 	"io"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -15,6 +16,23 @@ import (
 
 type staticDevices struct {
 	devices []models.Device
+}
+
+func TestSameHostOriginAllowsOnlyKnownDesktopOrigins(t *testing.T) {
+	for _, origin := range []string{"wails://wails", "http://wails.localhost"} {
+		request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8384/ws", nil)
+		request.Host = "127.0.0.1:8384"
+		request.Header.Set("Origin", origin)
+		if !sameHostOrigin(request) {
+			t.Fatalf("desktop origin %q was rejected", origin)
+		}
+	}
+	request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8384/ws", nil)
+	request.Host = "127.0.0.1:8384"
+	request.Header.Set("Origin", "https://malicious.example")
+	if sameHostOrigin(request) {
+		t.Fatal("untrusted cross-origin websocket was allowed")
+	}
 }
 
 func (s staticDevices) Devices() []models.Device { return s.devices }

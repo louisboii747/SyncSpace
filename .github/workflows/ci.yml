@@ -114,7 +114,7 @@ jobs:
       - name: Install package inspection tools
         run: |
           sudo apt-get update
-          sudo apt-get install --yes appstream binutils cpio desktop-file-utils file rpm shellcheck
+          sudo apt-get install --yes appstream binutils build-essential cpio desktop-file-utils file libgtk-3-dev libwebkit2gtk-4.1-dev rpm shellcheck
 
       - name: Build Debian and RPM packages
         run: |
@@ -168,5 +168,48 @@ jobs:
       - name: Verify executable versions
         shell: pwsh
         run: |
-          if ((& ./dist/windows/syncspace-0.0.0-windows-amd64.exe --version).Trim() -ne '0.0.0') { throw 'Server version mismatch' }
-          if ((& ./dist/windows/syncspace-0.0.0-windows-amd64-cli.exe --version).Trim() -ne '0.0.0') { throw 'CLI version mismatch' }
+          function Get-EmbeddedVersion([string] $Path) {
+            $resolvedPath = (Resolve-Path -LiteralPath $Path).Path
+            $stdoutPath = Join-Path $env:RUNNER_TEMP ("syncspace-version-{0}.out" -f [guid]::NewGuid())
+            $stderrPath = Join-Path $env:RUNNER_TEMP ("syncspace-version-{0}.err" -f [guid]::NewGuid())
+            try {
+              # GUI-subsystem executables must be explicitly awaited for their
+              # redirected version output to be complete.
+              $process = Start-Process -FilePath $resolvedPath -ArgumentList '--version' -Wait -PassThru -NoNewWindow `
+                -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+              $output = ((Get-Content -LiteralPath $stdoutPath -Raw -ErrorAction SilentlyContinue) | Out-String).Trim()
+              $errorOutput = ((Get-Content -LiteralPath $stderrPath -Raw -ErrorAction SilentlyContinue) | Out-String).Trim()
+            } finally {
+              Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
+            }
+            if ($process.ExitCode -ne 0) { throw "$Path --version failed: $errorOutput" }
+            $match = [regex]::Match($output, '(?m)^(?:SyncSpace\s+)?(?<version>[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?)\s*$')
+            if (-not $match.Success) { throw "Could not read version from $Path output: $output" }
+            return $match.Groups['version'].Value
+          }
+          if ((Get-EmbeddedVersion ./dist/windows/syncspace-0.0.0-windows-amd64.exe) -ne '0.0.0') { throw 'Desktop version mismatch' }
+          if ((Get-EmbeddedVersion ./dist/windows/syncspace-0.0.0-windows-amd64-server.exe) -ne '0.0.0') { throw 'Backend version mismatch' }
+          if ((Get-EmbeddedVersion ./dist/windows/syncspace-0.0.0-windows-amd64-cli.exe) -ne '0.0.0') { throw 'CLI version mismatch' }
+
+      - name: Smoke-test native window lifecycle
+        shell: pwsh
+        env:
+          SYNCSPACE_DATA_DIR: ${{ runner.temp }}\syncspace-desktop-data
+        run: |
+          $desktop = Start-Process -FilePath ./dist/windows/syncspace-0.0.0-windows-amd64.exe -PassThru
+          try {
+            $ready = $false
+            for ($attempt = 0; $attempt -lt 40; $attempt++) {
+              $desktop.Refresh()
+              if ($desktop.HasExited) { throw 'Native desktop exited during startup' }
+              try {
+                Invoke-RestMethod http://127.0.0.1:8384/api/v1/privacy-policy | Out-Null
+                $ready = $true
+                break
+              } catch { Start-Sleep -Milliseconds 250 }
+            }
+            if (-not $ready) { throw 'Native desktop did not start its backend' }
+          } finally {
+            if (-not $desktop.HasExited) { Stop-Process -Id $desktop.Id -Force }
+            Get-Process | Where-Object { $_.Path -like '*syncspace*server.exe' } | Stop-Process -Force -ErrorAction SilentlyContinue
+          }

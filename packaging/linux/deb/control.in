@@ -6,9 +6,9 @@ Architecture: @DEB_ARCH@
 Installed-Size: @INSTALLED_SIZE@
 Maintainer: SyncSpace maintainers <noreply@github.com>
 Homepage: https://github.com/louisboii747/syncspace
-Depends: systemd, xdg-utils
+Depends: libwebkit2gtk-4.1-0
 Description: private local-network file transfer
  SyncSpace sends files directly between explicitly paired devices on the same
  local network. It includes a loopback-only management interface, encrypted
- peer transport, persistent device identity, transfer history, and a per-user
- systemd service. It does not require a cloud relay.
+ peer transport, persistent device identity, transfer history, and a native
+ desktop window. It does not require a cloud relay or external browser.

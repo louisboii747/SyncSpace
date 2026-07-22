@@ -122,6 +122,9 @@ func sameHostOrigin(request *http.Request) bool {
 	if origin == "" {
 		return true
 	}
+	if origin == "wails://wails" || origin == "http://wails.localhost" {
+		return true
+	}
 	parsed, err := url.Parse(origin)
 	if err != nil {
 		return false

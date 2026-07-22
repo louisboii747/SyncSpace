@@ -1,70 +1,30 @@
 .TH SYNCSPACE 1 "@RELEASE_DATE@" "SyncSpace @VERSION@" "User Commands"
 .SH NAME
-syncspace \- manage the SyncSpace local file-transfer service
+syncspace \- open the SyncSpace native local-file-transfer application
 .SH SYNOPSIS
 .B syncspace
-.RI [ open | start | stop | restart | status | logs | enable | disable ]
 .br
 .B syncspace
-.RI [ --help | --version ]
+.RI [ --version ]
 .SH DESCRIPTION
-SyncSpace sends files directly between trusted devices on the same local
-network. The packaged application runs as a systemd user service, keeping its
-identity, trust records, settings, and received files inside the current user
-account.
+SyncSpace opens a dedicated desktop window for sending files directly between
+trusted devices on the same local network. It does not open a browser, require
+an account, or upload files to a cloud relay.
 .PP
-Running
-.B syncspace
-without an argument starts the service and opens its loopback-only web
-interface. The encrypted peer listener is separate from the management
-interface.
-.SH COMMANDS
+The desktop process owns a private companion backend for discovery, pairing,
+encrypted transfers, settings, and history. Launching SyncSpace again focuses
+the existing window instead of starting another backend.
+.SH OPTIONS
 .TP
-.B open
-Start SyncSpace, wait for its local interface, and open it in the default
-browser. This is the default command.
-.TP
-.B start
-Start SyncSpace for the current login session without opening a browser.
-.TP
-.B stop
-Stop SyncSpace for the current user.
-.TP
-.B restart
-Restart SyncSpace and apply changes from the optional environment file.
-.TP
-.B status
-Show status and recent service output.
-.TP
-.B logs
-Follow logs from the systemd user journal.
-.TP
-.B enable
-Start SyncSpace and opt in to automatic startup at future logins.
-.TP
-.B disable
-Stop SyncSpace and disable automatic startup.
-.SH CONFIGURATION
-Optional service overrides are read from
-.IR $XDG_CONFIG_HOME/syncspace/service.env ,
-or
-.I $HOME/.config/syncspace/service.env
-when XDG_CONFIG_HOME is unset. An example is installed at
-.IR /usr/share/doc/syncspace/service.env.example .
-.PP
-The management host must remain a loopback address. SyncSpace rejects a
-non-loopback management binding even when it is supplied in the environment
-file.
+.B --version
+Print the installed SyncSpace version without opening the window.
 .SH FILES
 .TP
 .I $XDG_CONFIG_HOME/SyncSpace
 Default identity, trust database, settings, and transfer working data.
 .TP
+.I $XDG_CACHE_HOME/SyncSpace/logs/desktop-backend.log
+Desktop companion-backend log.
+.TP
 .I $HOME/Downloads/SyncSpace
 Default received-file directory for a new profile.
-.TP
-.I /usr/lib/systemd/user/syncspace.service
-Packaged systemd user unit.
-.SH SEE ALSO
-.BR systemctl (1),
-.BR journalctl (1)
