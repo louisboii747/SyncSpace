@@ -59,6 +59,13 @@ export interface PairingRequest {
 
 export interface PairingDecision { request: PairingRequest; trustedDevice?: TrustedDevice }
 
+export interface PairingEvent {
+	type: 'PairingRequested' | 'PairingAccepted' | 'PairingRejected' | 'TrustedDeviceRemoved'
+	request?: PairingRequest
+	trustedDevice?: TrustedDevice
+	timestamp: string
+}
+
 export interface Settings {
 	schemaVersion: number
 	deviceName: string

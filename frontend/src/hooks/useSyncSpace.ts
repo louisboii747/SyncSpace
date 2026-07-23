@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { api, connectTransferEvents } from '../api'
-import type { Device, PairingRequest, PrivacyPolicy, Settings, Transfer, TransferEvent, TrustedDevice } from '../types'
+import { api, connectPairingEvents, connectTransferEvents } from '../api'
+import type { Device, PairingEvent, PairingRequest, PrivacyPolicy, Settings, Transfer, TransferEvent, TrustedDevice } from '../types'
 import { isTerminal } from '../utils'
 
 export interface ToastMessage {
@@ -107,6 +107,33 @@ export function useSyncSpace() {
     }
 		}, setConnected)
 	}, [privacyPolicy?.accepted, settings?.notificationsEnabled, toast])
+
+	useEffect(() => {
+		if (!privacyPolicy?.accepted) return
+		return connectPairingEvents((event: PairingEvent) => {
+			if (event.request) {
+				const request = event.request
+				setPairingRequests((current) => {
+					if (event.type === 'PairingRejected' || request.state === 'rejected' || request.state === 'paired') {
+						return current.filter((item) => item.requestId !== request.requestId)
+					}
+					const index = current.findIndex((item) => item.requestId === request.requestId)
+					if (index < 0) return [request, ...current]
+					const copy = [...current]
+					copy[index] = request
+					return copy
+				})
+				if (event.type === 'PairingRequested' && request.direction === 'incoming' && !request.localConfirmed) {
+					toast('info', 'Pairing request received', `Compare the code shown for ${request.deviceName}.`)
+				}
+			}
+			if (event.trustedDevice) {
+				setTrusted((current) => [event.trustedDevice!, ...current.filter((item) => item.deviceId !== event.trustedDevice?.deviceId)])
+				setPairingRequests((current) => current.filter((item) => item.deviceId !== event.trustedDevice?.deviceId))
+				if (event.type === 'PairingAccepted') toast('success', 'Device paired', `${event.trustedDevice.deviceName} is now trusted.`)
+			}
+		})
+	}, [privacyPolicy?.accepted, toast])
 
 	const trustedIDs = useMemo(() => new Set(trusted.filter((item) => !item.blocked && !item.identityKeyChanged).map((item) => item.deviceId)), [trusted])
   const active = useMemo(() => transfers.filter((item) => !isTerminal(item)), [transfers])

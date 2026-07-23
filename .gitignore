@@ -35,3 +35,6 @@ frontend/*.tsbuildinfo
 DerivedData/
 *.xcodeproj/xcuserdata/
 *.xcworkspace/xcuserdata/
+
+# Misc
+*.gocache/

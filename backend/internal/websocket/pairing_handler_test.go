@@ -15,19 +15,25 @@ import (
 )
 
 type staticTrustedDevices struct {
-	devices []pairing.TrustedDevice
+	devices  []pairing.TrustedDevice
+	requests []pairing.Request
 }
 
 func (s staticTrustedDevices) TrustedDevices(context.Context) ([]pairing.TrustedDevice, error) {
 	return s.devices, nil
 }
 
+func (s staticTrustedDevices) Requests() []pairing.Request { return s.requests }
+
 func TestPairingHandlerReplaysTrustAndStreamsEvents(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	broker := NewPairingBroker()
 	handler := NewPairingHandler(
 		broker,
-		staticTrustedDevices{devices: []pairing.TrustedDevice{{DeviceID: "existing"}}},
+		staticTrustedDevices{
+			devices:  []pairing.TrustedDevice{{DeviceID: "existing"}},
+			requests: []pairing.Request{{RequestID: "pending-request"}},
+		},
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 	)
 	router := gin.New()
@@ -49,6 +55,12 @@ func TestPairingHandlerReplaysTrustAndStreamsEvents(t *testing.T) {
 	}
 	if replay.Type != pairing.EventPairingAccepted || replay.TrustedDevice == nil || replay.TrustedDevice.DeviceID != "existing" {
 		t.Fatalf("unexpected pairing snapshot: %#v", replay)
+	}
+	if err := connection.ReadJSON(&replay); err != nil {
+		t.Fatal(err)
+	}
+	if replay.Type != pairing.EventPairingRequested || replay.Request == nil || replay.Request.RequestID != "pending-request" {
+		t.Fatalf("unexpected pending request snapshot: %#v", replay)
 	}
 
 	request := pairing.Request{RequestID: "new-request"}

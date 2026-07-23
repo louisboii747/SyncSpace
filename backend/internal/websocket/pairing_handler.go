@@ -13,6 +13,7 @@ import (
 // TrustedDeviceLister supplies the snapshot replayed to new pairing sockets.
 type TrustedDeviceLister interface {
 	TrustedDevices(context.Context) ([]pairing.TrustedDevice, error)
+	Requests() []pairing.Request
 }
 
 // PairingHandler upgrades and maintains pairing event connections.
@@ -41,8 +42,10 @@ func NewPairingHandler(broker *PairingBroker, devices TrustedDeviceLister, logge
 	}
 }
 
-// Serve handles GET /ws/pairing and replays current trust as PairingAccepted
-// events before switching to live transitions.
+// Serve handles GET /ws/pairing and replays current trust and pending requests
+// before switching to live transitions. Replaying requests is important on
+// mobile and desktop shells which can suspend between the peer request and the
+// WebSocket reconnect.
 func (h *PairingHandler) Serve(c *gin.Context) {
 	connection, err := h.upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
@@ -71,6 +74,16 @@ func (h *PairingHandler) Serve(c *gin.Context) {
 			Type:          pairing.EventPairingAccepted,
 			TrustedDevice: &device,
 			Timestamp:     now,
+		}); err != nil {
+			return
+		}
+	}
+	for _, request := range h.devices.Requests() {
+		request := request
+		if err := writeJSON(connection, pairing.Event{
+			Type:      pairing.EventPairingRequested,
+			Request:   &request,
+			Timestamp: now,
 		}); err != nil {
 			return
 		}

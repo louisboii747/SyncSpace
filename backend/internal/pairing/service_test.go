@@ -94,7 +94,10 @@ func pairedServices(t *testing.T, now func() time.Time) (*Service, *Service, *me
 	t.Helper()
 	identityA, identityB := testIdentity(t, "Device A", "windows"), testIdentity(t, "Device B", "linux")
 	storeA, storeB := newMemoryTrustedStore(), newMemoryTrustedStore()
-	transportA, transportB := &linkTransport{remoteHost: "127.0.0.1"}, &linkTransport{remoteHost: "127.0.0.1"}
+	// Device A reaches B through a different local route than the address B
+	// learned over discovery. Signed identity, not source-IP coincidence, is
+	// the pairing security boundary.
+	transportA, transportB := &linkTransport{remoteHost: "127.0.0.2"}, &linkTransport{remoteHost: "127.0.0.1"}
 	newService := func(identity services.Identity, peer models.Device, store TrustedDeviceStore, transport PeerTransport) *Service {
 		service, err := NewService(ServiceConfig{Store: store, Peers: &staticPeerDirectory{devices: []models.Device{peer}}, Identity: identity, Transport: transport, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: now})
 		if err != nil {

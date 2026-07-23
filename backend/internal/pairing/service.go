@@ -290,12 +290,23 @@ func (s *Service) ReceiveBegin(ctx context.Context, begin BeginRequest, remoteHo
 		return BeginResponse{}, ErrProtocol
 	}
 	peer, found := s.findOnlinePeer(begin.DeviceID)
-	if !found || !sameIP(peer.LocalIP, remoteHost) || peer.IdentityHint == "" {
+	if !found || peer.IdentityHint == "" {
 		return BeginResponse{}, ErrPeerNotDiscovered
 	}
 	publicKey, err := verifyRequest(begin)
 	if err != nil || shortFingerprint(services.IdentityFingerprint(publicKey)) != peer.IdentityHint {
 		return BeginResponse{}, errors.Join(ErrProtocol, errors.New("request identity does not match discovery"))
+	}
+	// The authenticated identity hint is the security binding. A strict source
+	// IP equality check breaks valid requests on multi-homed hosts, VPNs,
+	// privacy-addressed mobile devices, and platforms where mDNS reports a
+	// different address from the route selected by the kernel.
+	if !sameIP(peer.LocalIP, remoteHost) {
+		s.logger.Info("Pairing request arrived through an alternate local route",
+			"device_id", begin.DeviceID,
+			"discovered_ip", peer.LocalIP,
+			"source_ip", remoteHost,
+		)
 	}
 
 	s.mu.Lock()

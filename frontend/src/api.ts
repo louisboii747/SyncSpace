@@ -4,6 +4,7 @@ import type {
 	Diagnostics,
 	LocalFile,
 	PairingDecision,
+	PairingEvent,
 	PairingRequest,
 	PrivacyPolicy,
 	Settings,
@@ -207,4 +208,34 @@ export function connectTransferEvents(
     if (retry) window.clearTimeout(retry)
     socket?.close()
   }
+}
+
+export function connectPairingEvents(
+	onEvent: (event: PairingEvent) => void,
+	onState?: (connected: boolean) => void,
+): () => void {
+	let socket: WebSocket | undefined
+	let retry: number | undefined
+	let closed = false
+	const connect = () => {
+		const socketBase = desktopOrigin || `${window.location.protocol === 'https:' ? 'https:' : 'http:'}//${window.location.host}`
+		const socketURL = new URL(`${socketBase}${API.replace(desktopOrigin, '')}/ws/pairing`)
+		socketURL.protocol = socketURL.protocol === 'https:' ? 'wss:' : 'ws:'
+		socket = new WebSocket(socketURL.toString())
+		socket.onopen = () => onState?.(true)
+		socket.onmessage = (message) => {
+			try { onEvent(JSON.parse(message.data as string) as PairingEvent) } catch (error) { console.warn('SyncSpace ignored a malformed pairing event', error) }
+		}
+		socket.onclose = () => {
+			onState?.(false)
+			if (!closed) retry = window.setTimeout(connect, 1500)
+		}
+		socket.onerror = () => socket?.close()
+	}
+	connect()
+	return () => {
+		closed = true
+		if (retry) window.clearTimeout(retry)
+		socket?.close()
+	}
 }

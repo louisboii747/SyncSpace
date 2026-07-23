@@ -1263,6 +1263,20 @@ function PairingModal({
   onError: (message: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [secondsRemaining, setSecondsRemaining] = useState(() =>
+    Math.max(0, Math.ceil((new Date(request.expiresAt).getTime() - Date.now()) / 1000)),
+  );
+
+  useEffect(() => {
+    const update = () =>
+      setSecondsRemaining(
+        Math.max(0, Math.ceil((new Date(request.expiresAt).getTime() - Date.now()) / 1000)),
+      );
+    update();
+    const timer = window.setInterval(update, 1000);
+    return () => window.clearInterval(timer);
+  }, [request.expiresAt]);
 
   useEffect(() => {
     if (
@@ -1359,6 +1373,29 @@ function PairingModal({
         >
           {request.verificationCode}
         </div>
+        <div className="pairing-code-tools">
+          <button
+            className="text-button"
+            type="button"
+            onClick={() => {
+              void navigator.clipboard
+                .writeText(request.verificationCode)
+                .then(() => {
+                  setCopied(true);
+                  window.setTimeout(() => setCopied(false), 1800);
+                })
+                .catch(() => onError("The verification code could not be copied."));
+            }}
+          >
+            <Icon name={copied ? "check" : "copy"} />
+            {copied ? "Copied" : "Copy code"}
+          </button>
+          <span className={secondsRemaining < 30 ? "expiry-warning" : ""}>
+            {secondsRemaining > 0
+              ? `Expires in ${Math.floor(secondsRemaining / 60)}:${String(secondsRemaining % 60).padStart(2, "0")}`
+              : "Code expired"}
+          </span>
+        </div>
         <details className="technical-details">
           <summary>Show technical identity details</summary>
           <div className="fingerprint-box">
@@ -1385,7 +1422,7 @@ function PairingModal({
             </button>
             <button
               className="button primary"
-              disabled={busy}
+              disabled={busy || secondsRemaining === 0}
               onClick={() => void confirm()}
             >
               <Icon name="check" />
