@@ -1,30 +1,28 @@
 # SyncSpace for Apple platforms
 
-This directory is the native Swift and SwiftUI foundation for iOS 17+ and
-macOS 14+. The shared `SyncSpaceCore` module contains protocol models, an async
-API client, app state, and Bonjour discovery for the existing
-`_syncspace._tcp` service. The two app targets share an adaptive SwiftUI shell.
+This directory is an early native Apple-port foundation, initially scaffolded on Windows. It contains a shared `SyncSpaceKit` Swift package and separate SwiftUI source trees for iOS 17+ and macOS 14+. Those deployment targets can be lowered later after an explicit compatibility review.
 
-The source can be edited in VS Code on Windows. Creating, signing, simulating,
-and archiving Apple applications still requires macOS and Xcode.
+It has not been built with Xcode. No iOS simulator, Apple SDK, signing, entitlement, or real-device result is implied. Start with [Documentation/XCODE_SETUP.md](Documentation/XCODE_SETUP.md) on a Mac.
 
-## Open in Xcode
+## What exists
 
-1. Install XcodeGen on the Mac: `brew install xcodegen`.
-2. From this directory run `xcodegen generate`.
-3. Open `SyncSpaceApple.xcodeproj` and select `SyncSpaceiOS` or
-   `SyncSpacemacOS`.
-4. Set the development team and replace the `app.syncspace` bundle prefix if
-   required by the signing account.
+- Real foundations: Codable models aligned to Go payloads; IPv4/IPv6-aware configuration; async `URLSession` API client; WebSocket connection/reconnect stream; service protocols; dependency injection; settings validation; transfer state calculations; user-facing errors; privacy-conscious logging; SwiftUI application shells.
+- Explicit mock mode: realistic devices, pairing, transfers, notes, clipboard items, and mock services. Launch with `--mock-mode` only for previews/UI work. Production never silently falls back to mocks.
+- Placeholders: native Bonjour, clipboard and notes backend routes, native file upload/download workflow, notifications, background transfers, share extensions, and menu-bar mode. Unsupported actions are disabled in starter UI.
 
-`swift test` validates the shared model/API layer independently of Xcode.
+The Apple apps are clients of the existing Go backend; they do not reimplement discovery, trust, pairing cryptography, or transfer protocol logic. A crucial current limitation is that the Go management API and WebSockets are protected by `localOnly()`. A backend running on another LAN device will reject an iPhone or Mac client with HTTP 403. This scaffold preserves those routes for future authenticated remote access but does not weaken that boundary.
 
-## Runtime boundary
+## Layout
 
-The Apple UI intentionally talks through `SyncSpaceAPIClient`; it does not
-duplicate trust or transfer security in presentation code. The next native
-milestone is an Apple engine adapter (a signed XCFramework or a native Swift
-implementation) that hosts the same loopback API on-device. Bonjour discovery,
-local-network privacy declarations, shared models, and the UI state boundary
-are ready for that adapter. Until it is present, the starter UI reports the
-local engine as unavailable instead of simulating transfers.
+```text
+Package.swift                 Shared package manifest
+Sources/SyncSpaceKit/         Models, networking, services, state, storage, mocks
+Tests/SyncSpaceKitTests/      Platform-independent logic tests
+Apps/iOS/                     iOS SwiftUI app target sources and adapters
+Apps/macOS/                   macOS SwiftUI app target sources and adapters
+Configuration/                Draft plist and entitlement inputs
+Documentation/                Architecture, integration, security, roadmap, Xcode handoff
+project.yml                   Optional XcodeGen target description
+```
+
+`project.yml` is a convenience input, not a generated `.xcodeproj`. Swift Package Manager has no third-party dependencies and CocoaPods is not required.

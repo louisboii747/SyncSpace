@@ -1,0 +1,21 @@
+import Foundation
+
+public enum MockData {
+    public static let mac = Device(id: "mac-studio", name: "Studio Mac", platform: "macOS", host: "192.168.1.20", isTrusted: true, lastSeen: .now, capabilities: [.clipboard, .notes, .files, .pairing, .webSocket])
+    public static let phone = Device(id: "phone", name: "Louis’s iPhone", deviceType: "phone", platform: "iOS", host: "192.168.1.21", isTrusted: true, lastSeen: .now)
+    public static let laptop = Device(id: "laptop", name: "Travel Laptop", platform: "windows", host: "192.168.1.34", isOnline: false, lastSeen: .now.addingTimeInterval(-7200))
+    public static let guest = Device(id: "guest", name: "Nearby MacBook", platform: "macOS", host: "fe80::42", isTrusted: false, lastSeen: .now)
+    public static let devices = [mac, phone, laptop, guest]
+    public static let trusted = [TrustedDevice(id: mac.id, name: mac.name, platform: mac.platform, fingerprint: "A1:B2:C3:D4", pairedAt: .now.addingTimeInterval(-86400), lastSeen: .now, blocked: false), TrustedDevice(id: phone.id, name: phone.name, platform: phone.platform, fingerprint: "E5:F6:A7:B8", pairedAt: .now.addingTimeInterval(-172800), lastSeen: .now, blocked: false)]
+    public static let pairing = [PairingRequest(id: "pair-1", deviceID: guest.id, deviceName: guest.name, verificationCode: "482 193", createdAt: .now, expiresAt: .now.addingTimeInterval(300), state: .awaitingConfirmation, direction: "incoming")]
+    public static let transfers = [
+        Transfer(id: "tx-1", fileName: "Holiday Photos.zip", fileSize: 240_000_000, deviceName: phone.name, direction: .outbound, status: .transferring, bytesTransferred: 144_000_000, transferSpeed: 8_400_000, estimatedTimeRemaining: 11),
+        Transfer(id: "tx-2", fileName: "Project Notes.pdf", fileSize: 4_200_000, deviceName: mac.name, direction: .inbound, status: .completed, bytesTransferred: 4_200_000, completedAt: .now),
+        Transfer(id: "tx-3", fileName: "Archive.tar", fileSize: 80_000_000, deviceName: laptop.name, direction: .outbound, status: .failed, bytesTransferred: 12_000_000, errorMessage: "Device went offline")]
+    public static let notes = [Note(id: "note-1", title: "Wi-Fi details", content: "The guest network is ready.", senderDevice: phone, recipientDevice: mac, createdAt: .now.addingTimeInterval(-900), receivedAt: .now.addingTimeInterval(-895), isRead: false), Note(id: "note-2", title: "Build reminder", content: "Run the release checks before Friday.", senderDevice: mac, recipientDevice: phone, createdAt: .now.addingTimeInterval(-7200), receivedAt: nil, isRead: true)]
+    public static let clipboard = [ClipboardItem(id: "clip-1", type: .plainText, text: "A privacy-safe clipboard preview", metadata: nil, senderDevice: phone, createdAt: .now)]
+}
+
+public struct MockDeviceService: DeviceServiceProtocol { public init() {}; public func localDevice() async throws -> Device { MockData.mac }; public func discoveredDevices() async throws -> [Device] { MockData.devices }; public func refreshDiscovery() async throws {}; public func trustedDevices() async throws -> [TrustedDevice] { MockData.trusted }; public func forget(deviceID: String) async throws {} }
+public struct MockPairingService: PairingServiceProtocol { public init() {}; public func request(deviceID: String) async throws -> PairingRequest { MockData.pairing[0] }; public func accept(requestID: String) async throws -> PairingRequest { var value = MockData.pairing[0]; value.state = .paired; return value }; public func reject(requestID: String) async throws -> PairingRequest { var value = MockData.pairing[0]; value.state = .rejected; return value }; public func cancel(requestID: String) async throws {}; public func activeRequests() async throws -> [PairingRequest] { MockData.pairing }; public func trustedDevices() async throws -> [TrustedDevice] { MockData.trusted } }
+public struct MockTransferService: FileTransferServiceProtocol { public init() {}; public func transfers() async throws -> [Transfer] { MockData.transfers }; public func cancel(id: String) async throws -> Transfer { var value = MockData.transfers.first { $0.id == id } ?? MockData.transfers[0]; value.status = .cancelled; return value }; public func retry(id: String) async throws -> Transfer { var value = MockData.transfers.first { $0.id == id } ?? MockData.transfers[0]; value.status = .queued; return value } }

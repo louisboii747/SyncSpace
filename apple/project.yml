@@ -10,16 +10,16 @@ settings:
     CURRENT_PROJECT_VERSION: 1
     MARKETING_VERSION: 0.1.0
 targets:
-  SyncSpaceCore:
+  SyncSpaceKit:
     type: framework
     platform: [iOS, macOS]
-    sources: [Sources/SyncSpaceCore]
+    sources: [Sources/SyncSpaceKit]
   SyncSpaceiOS:
     type: application
     platform: iOS
-    sources: [Sources/SyncSpaceApp]
+    sources: [Apps/iOS]
     dependencies:
-      - target: SyncSpaceCore
+      - target: SyncSpaceKit
     info:
       path: Configuration/iOS-Info.plist
     entitlements:
@@ -27,9 +27,9 @@ targets:
   SyncSpacemacOS:
     type: application
     platform: macOS
-    sources: [Sources/SyncSpaceApp]
+    sources: [Apps/macOS]
     dependencies:
-      - target: SyncSpaceCore
+      - target: SyncSpaceKit
     info:
       path: Configuration/macOS-Info.plist
     entitlements:

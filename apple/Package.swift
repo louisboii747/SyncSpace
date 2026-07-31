@@ -2,11 +2,11 @@
 import PackageDescription
 
 let package = Package(
-    name: "SyncSpaceCore",
+    name: "SyncSpaceKit",
     platforms: [.iOS(.v17), .macOS(.v14)],
-    products: [.library(name: "SyncSpaceCore", targets: ["SyncSpaceCore"])],
+    products: [.library(name: "SyncSpaceKit", targets: ["SyncSpaceKit"])],
     targets: [
-        .target(name: "SyncSpaceCore", path: "Sources/SyncSpaceCore"),
-        .testTarget(name: "SyncSpaceCoreTests", dependencies: ["SyncSpaceCore"], path: "Tests/SyncSpaceCoreTests")
+        .target(name: "SyncSpaceKit", path: "Sources/SyncSpaceKit"),
+        .testTarget(name: "SyncSpaceKitTests", dependencies: ["SyncSpaceKit"], path: "Tests/SyncSpaceKitTests")
     ]
 )
